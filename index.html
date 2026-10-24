@@ -40,6 +40,9 @@ html,body{height:100%}
 [hidden]{display:none!important}
 body{background:var(--ink);color:var(--paper);font-family:var(--f-ui);font-size:20px;overflow:hidden;-webkit-user-select:none;user-select:none}
 canvas{image-rendering:pixelated;image-rendering:crisp-edges}
+.recordbox{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;border:4px solid var(--line);padding:8px 12px;background:var(--panel)}
+.recordbox b{font-family:var(--f-display);font-size:16px;color:var(--pow)}
+.recordbox small{color:var(--muted);font-size:18px}
 .auth{max-width:440px}
 .auth h1{font-size:clamp(20px,6vw,30px);text-align:center}
 .tabs{display:grid;grid-template-columns:1fr 1fr;border:4px solid var(--line)}
@@ -252,11 +255,12 @@ i.ticket::after{content:"";position:absolute;left:5px;top:3px;width:2px;height:6
         <div class="showcase" id="showcase"></div>
         <div class="actions">
           <button class="btn big" id="playBtn">JUGAR</button>
+          <div class="recordbox"><span class="eyebrow">Mejor tiempo</span><b id="recordVal">--:--</b><small id="recordHero"></small></div>
           <button class="btn ghost" id="heroesBtn">HÉROES <small id="ownedCount"></small></button>
           <button class="btn ghost" id="gachaBtn">GACHAPÓN</button>
         </div>
       </div>
-      <p class="lead">El <b>Doctor Óxido</b> manda oleada tras oleada. Aguanta <b>10 minutos</b>, gana <b>monedas</b> para mejorar a tus héroes y <b>tickets</b> para el gachapón.</p>
+      <p class="lead">El <b>Doctor Óxido</b> manda oleada tras oleada. Aguanta <b>todo lo que puedas</b> y supera tu récord. Gana <b>monedas</b> para mejorar a tus héroes y <b>tickets</b> para el gachapón.</p>
       <div class="guide">
         <div class="tip" style="--c:#5cffb0"><b>Puestos de suministro</b><span>Quédate en el círculo para capturarlo: llega una incursión y ganas una mejora temporal.</span></div>
         <div class="tip" style="--c:#c9a8ff"><b>Grietas</b><span>Llevan a otro universo con un jefe. Si ganas: cofre, monedas y 3 tickets.</span></div>
@@ -1573,12 +1577,12 @@ function newGame(key) {
         dmgMul:R.mult * star * (1 + 0.06 * G.dmg), cdMul:Math.pow(0.97, G.cd), speedMul:1 + 0.03 * G.spd, pickup:70 * (1 + 0.1 * G.mag),
         regen:0.15 * (G.reg || 0), weapons:{}, passives:{}, boosts:{}, moving:false, ring:2, target:2, turnT:0, walkT:0, sq:0, dustT:0, wasMoving:false };
   P.weapons[H.weapon] = 1;
-  run = { coins:0, tickets:0, settled:false, nextTicket:180 };
+  run = { coins:0, tickets:0, settled:false, nextTicket:180, prevBest:save.best || 0, recordSaid:false, nextMile:300 };
   enemies = []; gems = []; texts = []; parts = []; booms = []; smoke = []; clearFx(); wst = {};
   outposts = []; rift = null; exitPortal = null; saved = null; trans = null; mode = 'city';
   time = 0; kills = 0; bossKills = 0; spawnAcc = 0; nextBoss = BOSS_EVERY; pendingLv = 0; shake = 0; decoBoom = 3;
   outpostT = 8; riftT = 75; miniT = 60; miniN = 0;
-  say('¡Aguanta 10:00!', 2.2);
+  say(save.best ? 'Récord a batir: ' + fmt(save.best) : '¡Aguanta todo lo que puedas!', 2.4);
   for (let i = 0; i < 8; i++) spawnEnemy();
   camX = P.x; camY = P.y;
   hideAll(); state = 'play'; $('#pauseBtn').hidden = false;
@@ -2069,7 +2073,9 @@ function update(dt) {
   updateAmbient(dt, true);
 
   if (P.hp <= 0) return endGame(false);
-  if (time >= WIN_TIME && mode === 'city') return endGame(true);
+  // sin límite de tiempo: hitos cada 5 minutos y aviso de récord
+  if (time >= run.nextMile) { run.nextMile += 300; run.tickets += 1; say('¡' + fmt(time) + ' resistidos! +1 ticket', 3, '#5cff8a'); }
+  if (!run.recordSaid && run.prevBest > 0 && time > run.prevBest) { run.recordSaid = true; say('¡NUEVO RÉCORD!', 3, '#ffd23f'); }
 }
 
 /* ================= Poderes de los héroes ================= */
@@ -2468,7 +2474,7 @@ function settle(win) {
   const bonus = Math.floor(time / 15) + Math.floor(kills / 25) + (win ? 60 : 0);
   const coins = run.coins + bonus, tickets = run.tickets + (win ? 5 : 0);
   save.coins += coins; save.tickets += tickets;
-  if (time > save.best) save.best = time;
+  if (time > (save.best || 0)) { save.best = time; save.bestHero = heroKey; }
   persist();
   return { coins, tickets };
 }
@@ -2476,10 +2482,11 @@ function endGame(win) {
   state = 'over'; $('#pauseBtn').hidden = true;
   const r = settle(win) || { coins:0, tickets:0 };
   const where = mode === 'rift' ? ' en el otro universo' : '';
-  $('#overTitle').textContent = win ? '¡Ciudad Nexo está a salvo!' : 'Ciudad Nexo ha caído';
-  $('#overText').textContent = win
-    ? `${HEROES[heroKey].name} ha aguantado los 10 minutos. Premio por victoria: 60 monedas y 5 tickets extra.`
-    : `${HEROES[heroKey].name} ha caído${where} tras resistir ${fmt(time)}. Tu récord está en ${fmt(save.best)}.`;
+  const isRecord = run && time > run.prevBest && time >= 1;
+  $('#overTitle').textContent = isRecord ? '¡Nuevo récord!' : 'Ciudad Nexo ha caído';
+  $('#overText').textContent = isRecord
+    ? `${HEROES[heroKey].name} ha resistido ${fmt(time)}${where}: es tu mejor tiempo${run.prevBest ? ' (antes ' + fmt(run.prevBest) + ')' : ''}. ¡Queda guardado en tu cuenta!`
+    : `${HEROES[heroKey].name} ha caído${where} tras resistir ${fmt(time)}. Tu récord sigue en ${fmt(save.best)}${save.bestHero && HEROES[save.bestHero] ? ' con ' + HEROES[save.bestHero].name : ''}.`;
   $('#sTime').textContent = fmt(time); $('#sLv').textContent = P.lv; $('#sKills').textContent = kills; $('#sBoss').textContent = bossKills;
   $('#rCoins').textContent = '+' + r.coins; $('#rTickets').textContent = '+' + r.tickets;
   $('#over').hidden = false; $('#againBtn').focus({ preventScroll:true });
@@ -3011,7 +3018,7 @@ function drawHud(t) {
   ctx.drawImage(COIN, 16, 64, 21, 21); ctx.fillStyle = '#ffd23f'; txt(String(run.coins), 42, 69);
   ctx.drawImage(TICKET, 16, 92, 27, 18); ctx.fillStyle = '#ff8a3d'; txt(String(run.tickets), 48, 96);
   ctx.textAlign = 'center'; ctx.fillStyle = '#eef1ff'; ctx.font = font(20); txt(fmt(time), VW / 2, 22);
-  ctx.fillStyle = mode === 'rift' ? '#c9a8ff' : '#c9cff0'; ctx.font = font(8); txt(mode === 'rift' ? 'OTRO UNIVERSO' : 'META 10:00', VW / 2, 50);
+  ctx.fillStyle = mode === 'rift' ? '#c9a8ff' : '#c9cff0'; ctx.font = font(8); txt(mode === 'rift' ? 'OTRO UNIVERSO' : !run || !run.prevBest ? 'SIN LÍMITE' : time > run.prevBest ? '¡NUEVO RÉCORD!' : 'RÉCORD ' + fmt(run.prevBest), VW / 2, 50);
   const big = enemies.find(e => ETYPES[e.type].rift) || enemies.find(e => e.type === 'jefe');
   if (big) {
     const isRift = !!ETYPES[big.type].rift;
@@ -3098,7 +3105,8 @@ function showHome() {
   portrait($('#showCv'), k, false);
   $('#playBtn').disabled = false;
   $('#ownedCount').textContent = Object.keys(save.owned).length + '/' + HKEYS.length;
-  $('#best').textContent = save.best ? 'Tu récord: ' + fmt(save.best) : 'Aún no tienes récord';
+  $('#recordVal').textContent = save.best ? fmt(save.best) : '--:--'; $('#recordHero').textContent = save.best && save.bestHero && HEROES[save.bestHero] ? 'con ' + HEROES[save.bestHero].name : save.best ? '' : 'Aún sin récord';
+  $('#best').textContent = save.best ? 'Tu récord: ' + fmt(save.best) + (save.bestHero && HEROES[save.bestHero] ? ' con ' + HEROES[save.bestHero].name : '') : 'Aún no tienes récord';
 }
 let detailKey = null;
 function showHeroes(k) {
