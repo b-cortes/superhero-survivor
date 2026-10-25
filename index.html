@@ -566,7 +566,7 @@ const WEAPONS = {
   pulso:   { name:'Onda de Sónica',    color:'#b79aff', text:['Lanzas una onda de sonido que empuja','Más daño y radio','Ondas más frecuentes','Más daño y radio','Onda máxima'] },
   veneno:  { name:'Frasco de Toxina',  color:'#d6ff3f', text:['Lanzas un frasco que deja un charco tóxico','Más daño y duración','+1 frasco','Charcos más grandes','+1 frasco y daño máximo'] },
   misiles: { name:'Misiles de Bólido', color:'#e8354f', text:['Lanzas un misil teledirigido que explota','+1 misil','Más daño y explosión mayor','+1 misil','+1 misil y daño máximo'] },
-  laser:   { name:'Láser de Prisma',   color:'#5ff0ff', text:['Un láser gira a tu alrededor','Más daño y alcance','+1 haz','Más daño y alcance','+1 haz y daño máximo'] },
+  laser:   { name:'Láser de Prisma',   color:'#5ff0ff', text:['Un láser se fija en el enemigo más cercano y lo abrasa','Más daño y alcance','+1 haz: apunta a 2 enemigos','Más daño y alcance','+1 haz y daño máximo'] },
   agujero: { name:'Agujero de Eclipse',color:'#ffb347', text:['Creas un agujero negro que atrae y daña','Más daño y radio','Dura más','Más daño y radio','Agujero supermasivo'] },
   meteoro: { name:'Meteoros de Astra', color:'#ffd23f', text:['Haces caer 2 meteoros sobre los enemigos','+1 meteoro','Más daño','+1 meteoro','+1 meteoro y daño máximo'] },
   tiempo:  { name:'Pausa de Cronos',   color:'#5ff0ff', text:['Congelas en el tiempo a los enemigos cercanos','Más daño y radio','Congelación más larga','Más daño y radio','Paradoja máxima'] },
@@ -631,7 +631,7 @@ const WS = {
   pulso:   (L, u) => ({ dmg:lv([14,18,22,27,34],L) * (1 + 0.12 * u[0]), r:lv([110,120,135,150,170],L) * (1 + 0.06 * u[1]), cd:lv([2,1.9,1.6,1.5,1.35],L) }),
   veneno:  (L, u) => ({ dps:lv([18,24,30,38,50],L) * (1 + 0.12 * u[0]), r:lv([40,44,50,56,64],L) * (1 + 0.06 * u[1]), life:lv([3,3.3,3.6,4,4.5],L) + 0.3 * u[1], n:lv([1,1,2,2,3],L), cd:lv([2.2,2.1,2,1.9,1.7],L) }),
   misiles: (L, u) => ({ n:lv([1,2,2,3,4],L) + Math.floor(u[1] / 2), dmg:lv([26,30,36,42,52],L) * (1 + 0.12 * u[0]), aoe:lv([40,44,48,54,60],L), cd:lv([1.8,1.7,1.6,1.5,1.35],L) }),
-  laser:   (L, u) => ({ n:lv([1,1,2,2,3],L) + Math.max(0, Math.floor((u[1] - 1) / 2)), dps:lv([30,38,46,56,70],L) * (1 + 0.12 * u[0]), len:lv([120,140,150,165,180],L) }),
+  laser:   (L, u) => ({ n:lv([1,1,2,2,3],L) + Math.max(0, Math.floor((u[1] - 1) / 2)), dps:lv([30,38,46,56,70],L) * (1 + 0.12 * u[0]), len:lv([150,170,185,200,220],L) }),
   agujero: (L, u) => ({ dps:lv([26,32,40,48,60],L) * (1 + 0.12 * u[0]), r:lv([70,76,84,92,100],L) * (1 + 0.06 * u[1]), life:lv([2.2,2.4,2.9,3,3.4],L) + 0.2 * u[1], cd:lv([4.5,4.3,4.1,3.9,3.6],L) }),
   meteoro: (L, u) => ({ n:lv([2,3,3,4,5],L) + Math.floor(u[1] / 2), dmg:lv([40,48,58,66,80],L) * (1 + 0.12 * u[0]), aoe:55, cd:lv([2.6,2.5,2.4,2.3,2.1],L) }),
   tiempo:  (L, u) => ({ dmg:lv([30,38,46,56,70],L) * (1 + 0.12 * u[0]), r:lv([180,200,220,240,270],L) * (1 + 0.05 * u[1]), freeze:lv([1.6,1.8,2.2,2.3,2.6],L) + 0.3 * u[1], cd:lv([6,5.7,5.4,5.1,4.6],L) }),
@@ -2649,22 +2649,24 @@ const W_UPD = {
     s.t = S.cd * cdm;
   },
   laser(s, S, dt) {
+    // el láser se fija en los enemigos que haya dentro del alcance (uno por haz) y los va quemando
     s.n = S.n; s.len = S.len;
-    s.on = !!nearest(P.x, P.y - 8, S.len + 20);
+    const ox = P.x, oy = P.y - 8;
+    const inR = e => e && !e.dead && Math.hypot(e.x - ox, e.y - oy) < S.len + e.r;
+    s.tgs = (s.tgs || []).filter(inR).slice(0, S.n);
+    if (s.tgs.length < S.n) {
+      const cand = [];
+      near(ox, oy, S.len + 40, e => { if (inR(e) && !s.tgs.includes(e)) cand.push(e); });
+      cand.sort((a, b) => Math.hypot(a.x - ox, a.y - oy) - Math.hypot(b.x - ox, b.y - oy));
+      while (s.tgs.length < S.n && cand.length) s.tgs.push(cand.shift());
+    }
+    s.on = s.tgs.length > 0;
+    s.pos = s.tgs.map(e => [e.x, e.y - 10]);
     if (!s.on) return;
-    s.a += 1.7 * dt; s.tick -= dt;
+    s.tick -= dt;
     if (s.tick > 0) return;
     s.tick = 0.15;
-    const ox = P.x, oy = P.y - 8;
-    for (let i = 0; i < S.n; i++) {
-      const a = s.a + i * TAU / S.n, ex = ox + Math.cos(a) * S.len, ey = oy + Math.sin(a) * S.len;
-      near(ox, oy, S.len + 40, e => {
-        const vx = ex - ox, vy = ey - oy, l2 = vx * vx + vy * vy;
-        const tt = Math.max(0, Math.min(1, ((e.x - ox) * vx + (e.y - oy) * vy) / l2));
-        const qx = ox + vx * tt, qy = oy + vy * tt;
-        if (Math.hypot(e.x - qx, e.y - qy) < e.r + 6) hit(e, S.dps * 0.15, 0, 0, true);
-      });
-    }
+    for (const e of s.tgs) hit(e, S.dps * 0.15, 0, 0, true);
   },
   agujero(s, S, dt, cdm) {
     s.t -= dt; if (s.t > 0) return;
@@ -3434,13 +3436,18 @@ function drawAirFx(t) {
     b.fillStyle = '#ff9a2a'; b.fillRect(Math.round(x - ux * 4), Math.round(y - uy * 4), 1, 1);
   }
   const ls = wst.laser;
-  if (P.weapons.laser && ls && ls.n && ls.on) {
+  if (P.weapons.laser && ls && ls.on && ls.pos) {
     const ox = P2(P.x), oy = P2(P.y - 8);
-    for (let i = 0; i < ls.n; i++) {
-      const a = ls.a + i * TAU / ls.n, ex = ox + Math.cos(a) * P2(ls.len), ey = oy + Math.sin(a) * P2(ls.len);
-      b.fillStyle = 'rgba(95,240,255,.45)'; pline(b, ox, oy + 1, ex, ey + 1); pline(b, ox + 1, oy, ex + 1, ey);
+    b.fillStyle = Math.floor(t * 20) % 2 ? '#ffffff' : '#5ff0ff'; pcirc(b, ox, oy, 2);
+    for (const [px, py] of ls.pos) {
+      const ex = P2(px), ey = P2(py), w = Math.floor(t * 24) % 2;
+      b.fillStyle = 'rgba(255,79,216,.35)'; pline(b, ox, oy + 1, ex, ey + 1); pline(b, ox + 1, oy, ex + 1, ey); pline(b, ox - 1, oy, ex - 1, ey);
+      b.fillStyle = 'rgba(95,240,255,.8)'; pline(b, ox, oy + w, ex, ey + w);
       b.fillStyle = '#ffffff'; pline(b, ox, oy, ex, ey);
-      b.fillStyle = Math.floor(t * 20) % 2 ? '#ff4fd8' : '#5ff0ff'; b.fillRect(Math.round(ex) - 1, Math.round(ey) - 1, 3, 3);
+      b.fillStyle = 'rgba(95,240,255,.5)'; pcirc(b, ex, ey, 4 + w);
+      b.fillStyle = '#ffffff'; pcirc(b, ex, ey, 2);
+      b.fillStyle = Math.floor(t * 20) % 2 ? '#ff4fd8' : '#5ff0ff';
+      for (let k = 0; k < 3; k++) { const a = t * 9 + k * 2.1; b.fillRect(Math.round(ex + Math.cos(a) * 5), Math.round(ey + Math.sin(a) * 4), 1, 1); }
     }
   }
   for (const m of meteors) {
@@ -4883,7 +4890,6 @@ function fxAdvance(f, dt) {
     }
     if (name === 'slashes' || name === 'bolts' || name === 'timeRings') f.a[i] = arr.filter(o => o.t > 0);
   }
-  if (f.w && f.w.laser && f.w.laser.on) f.w.laser.a = (f.w.laser.a || 0) + 2.2 * dt;
 }
 function allyFxLayer(layer, t) {
   if (!isCoop()) return;
