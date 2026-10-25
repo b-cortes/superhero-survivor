@@ -1821,7 +1821,7 @@ function hideAll() { for (const id of ['menu','heroesScr','gachaScr','reveal','w
 const boostOn = k => P && (P.boosts[k] || 0) > 0;
 function hurt(amount) {
   if (P.dead || P.choosing || P.inv > 0 || boostOn('escudo')) return;
-  P.hp -= amount * (1 - P.armor); P.inv = 0.45; shake = Math.max(shake, 7);
+  P.hp -= amount * (1 - P.armor) * (mode === 'rift' ? riftDmgMul() : 1); P.inv = 0.45; shake = Math.max(shake, 7);
 }
 
 /* ================= Rejilla espacial ================= */
@@ -1882,6 +1882,15 @@ function spawnEnemy(type, x, y) {
     e.elite = true; e.hp *= 2.6; e.maxHp = e.hp; e.dmg *= 1.3; e.r *= 1.15; e.xp = Math.max(1, e.xp) * 3;
   }
   enemies.push(e); return e;
+}
+// Jefes de grieta acordes al nivel del equipo: su vida sigue el daño por segundo típico de un héroe a ese nivel
+// (medido en pruebas: ~40 a nivel 3, ~175 a nivel 15, ~450 a nivel 35) para que caigan en unos 40-50 s.
+const riftHpFor = (type, L) => Math.round(30 * (5 + 11.5 * L + 0.06 * L * L) * (ETYPES[type].hp / 3000));
+const riftDmgMul = () => Math.min(1.7, 0.7 + 0.025 * (P ? P.lv : 1));
+function riftScale(e) {
+  const L = P.lv, n = isHost() ? coopN() : 1;
+  e.hp = e.maxHp = riftHpFor(e.type, L) * (0.15 + 0.85 * n);
+  e.dmg = ETYPES[e.type].dmg; e.lvl = L;
 }
 function enemyDmgMul(t) { return Math.pow(1.12, t / 120); }
 const threatLv = t => 1 + Math.floor(t / 120);
@@ -2230,7 +2239,7 @@ function enterRift() {
   mode = 'rift'; P.x = 0; P.y = 150;
   enemies = []; gems = []; bolts = []; booms = []; smoke = []; parts = []; clearFx();
   const opts2 = RIFT_BOSSES.filter(k => k !== lastRift), type = pick(opts2); lastRift = type;
-  spawnEnemy(type, 0, -120).atk = 2.5;
+  const bossE = spawnEnemy(type, 0, -120); bossE.atk = 2.5; riftScale(bossE);
   exitPortal = null; rift = null; P.inv = 1.5;
   if (isHost()) { if (P.dead) { P.dead = false; P.hp = P.maxHp * 0.3; } hostTeleportAll(0, 150); }
   say('Universo cerrado: ' + ETYPES[type].name, 3, '#c9a8ff');
@@ -3765,7 +3774,7 @@ function drawHud(t) {
     ctx.fillStyle = 'rgba(255,255,255,.25)'; ctx.fillRect(x, y, Math.round(w * frac / 3) * 3, 3);
     if (isRift) { ctx.fillStyle = OUT; ctx.fillRect(x + Math.round(w / 2 / 3) * 3, y, 3, h); }
     ctx.fillStyle = '#ffd23f'; ctx.font = font(isRift ? 11 : 8);
-    txt(ETYPES[big.type].name.toUpperCase() + (isRift && frac < 0.5 ? ' · ¡FURIA!' : ''), VW / 2, isRift ? y - 20 : y + h + 8);
+    txt(ETYPES[big.type].name.toUpperCase() + (isRift && big.lvl ? ' · NV ' + big.lvl : '') + (isRift && frac < 0.5 ? ' · ¡FURIA!' : ''), VW / 2, isRift ? y - 20 : y + h + 8);
     if (isRift && big.call && big.call.t > 0) { ctx.fillStyle = '#ffffff'; ctx.globalAlpha = Math.min(1, big.call.t * 2); ctx.font = font(9); txt('» ' + big.call.txt.toUpperCase() + ' «', VW / 2, y - 40); ctx.globalAlpha = 1; }
   }
   let by = 72;
@@ -4603,11 +4612,11 @@ function buildSnap(p) {
   for (const o of warnings) { if (!o.id) o.id = ++widN; w.push([o.id, o.kind === 'circle' ? 0 : 1, Math.round(o.x), Math.round(o.y), Math.round(o.r || 0), +o.t.toFixed(2), o.max, o.dmg, Math.round(o.x2 || 0), Math.round(o.y2 || 0)]); }
   const h = [];
   for (const o of hz) { if (!o.id) o.id = ++hidN; const c = {}; for (const k in o) if (k !== 'e' && typeof o[k] !== 'object') c[k] = typeof o[k] === 'number' ? Math.round(o[k] * 100) / 100 : o[k]; h.push(c); }
-  const big = enemies.find(o => ETYPES[o.type].rift && o.call && o.call.t > 0);
+  const big = enemies.find(o => ETYPES[o.type].rift && o.call && o.call.t > 0), rb = enemies.find(o => ETYPES[o.type].rift);
   const pz = []; if (P.choosing) pz.push([NET.id, NET.name]); for (const q of NET.peers.values()) if (q.choosing) pz.push([q.id, q.name]);
   return { k:'s', pz, t:+time.toFixed(2), md:mode, lv:P.lv, xp:Math.round(P.xp), nx:P.next, ki:kills, bk:bossKills, pl, e, g, b:bl, w, h,
     op:outposts.map(o => [Math.round(o.x), Math.round(o.y), o.type, +o.prog.toFixed(2)]), bc:bigChests.map(c => [Math.round(c.x), Math.round(c.y), +c.prog.toFixed(2)]),
-    rf:rift ? [Math.round(rift.x), Math.round(rift.y), Math.round(rift.life)] : 0, ep:exitPortal ? [exitPortal.x, exitPortal.y] : 0, cl:big ? big.call.txt : 0 };
+    rf:rift ? [Math.round(rift.x), Math.round(rift.y), Math.round(rift.life)] : 0, ep:exitPortal ? [exitPortal.x, exitPortal.y] : 0, cl:big ? big.call.txt : 0, bl:rb ? rb.lvl || 0 : 0 };
 }
 function hostApplyGuestEvents(p, m) {
   const byId = new Map(); for (const o of enemies) if (!o.dead) byId.set(o.id, o);
@@ -4696,7 +4705,7 @@ function guestSnap(s) {
     o.st = fl & 8 ? 'wind' : 'chase'; o.spm = fl & 16 ? 1 : 0; o.elite = !!(fl & 64); if (o.elite && !o._er) { o._er = 1; o.r *= 1.15; }
     o.ring = E[i + 7]; o.jumpH = E[i + 8];
     o.dmg = T.dmg * enemyDmgMul(time) * (o.elite ? 1.3 : 1);
-    if (T.rift) o.call = s.cl ? { txt:s.cl, t:1 } : null;
+    if (T.rift) { o.call = s.cl ? { txt:s.cl, t:1 } : null; o.lvl = s.bl || 0; }
     o._s = o.slow; o._f = o.frozen; o._r = o.root;
   }
   for (const [id, o] of emap) if (!seen.has(id)) emap.delete(id);
