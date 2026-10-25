@@ -339,7 +339,14 @@ i.ticket::after{content:"";position:absolute;left:5px;top:3px;width:2px;height:6
         <div class="autherr" id="aErr"></div>
         <button class="btn big" id="aBtn" type="button">ENTRAR</button>
       </form>
-      <p class="authnote" id="aNote">Cada cuenta tiene su propia partida. Se guarda en este dispositivo; usa el código de guardado para llevarla a otro.</p>
+      <button class="btn ghost" id="impOpen" type="button">¿VIENES DE OTRO DISPOSITIVO? PEGA TU CÓDIGO</button>
+      <div id="impBox" hidden style="display:flex;flex-direction:column;gap:10px">
+        <p class="authnote" style="text-align:left">Pega el <b>código de guardado</b> que copiaste en tu otro dispositivo (menú → tu nombre → COPIAR MI CÓDIGO). Se creará aquí tu cuenta con el mismo usuario y contraseña, y con toda tu partida.</p>
+        <textarea class="codebox" id="impCode" spellcheck="false" autocapitalize="off" autocorrect="off" placeholder="SHS2-..."></textarea>
+        <div class="autherr" id="impMsg"></div>
+        <button class="btn" id="impBtn" type="button">CARGAR MI PARTIDA</button>
+      </div>
+      <p class="authnote" id="aNote">Cada cuenta tiene su propia partida y se guarda en este dispositivo. Para seguir en otro, usa tu código de guardado.</p>
     </div>
   </div>
 
@@ -347,12 +354,13 @@ i.ticket::after{content:"";position:absolute;left:5px;top:3px;width:2px;height:6
     <div class="panel auth">
       <span class="eyebrow">Tu cuenta</span>
       <h2 id="accName"></h2>
-      <p class="authnote" style="text-align:left">El <b>código de guardado</b> contiene tu partida. Cópialo y pégalo en otro móvil u ordenador (dentro de tu cuenta) para seguir jugando allí, o guárdalo como copia de seguridad.</p>
+      <p class="authnote" style="text-align:left">El <b>código de guardado</b> lleva tu cuenta y tu partida. Cópialo o compártelo (por WhatsApp, por ejemplo) y en el otro dispositivo, en la pantalla de inicio, pulsa <b>"¿Vienes de otro dispositivo?"</b> y pégalo. También sirve como copia de seguridad.</p>
       <textarea class="codebox" id="accCode" spellcheck="false" placeholder="Pega aquí un código de guardado"></textarea>
       <div class="autherr" id="accMsg"></div>
       <div class="row" style="display:flex;gap:10px;flex-wrap:wrap">
         <button class="btn" id="accCopy">COPIAR MI CÓDIGO</button>
-        <button class="btn ghost" id="accLoad">CARGAR CÓDIGO</button>
+        <button class="btn ghost" id="accShare" hidden>COMPARTIR</button>
+        <button class="btn ghost" id="accLoad">CARGAR CÓDIGO PEGADO</button>
       </div>
       <div class="row" style="display:flex;gap:10px;flex-wrap:wrap">
         <button class="btn ghost" id="accBack">VOLVER</button>
@@ -3793,8 +3801,21 @@ async function doAuthInner() {
   } finally { $('#aBtn').disabled = false; }
 }
 // código de guardado (para llevar la partida a otro dispositivo)
-const toCode = o => 'SHS1-' + btoa(unescape(encodeURIComponent(JSON.stringify(o))));
-const fromCode = c => JSON.parse(decodeURIComponent(escape(atob(c.trim().replace(/^SHS1-/, '').replace(/\s+/g, '')))));
+const toCode = o => 'SHS2-' + btoa(unescape(encodeURIComponent(JSON.stringify(o))));
+// lectura tolerante: ignora espacios, saltos de línea, texto alrededor y caracteres raros que añaden algunas apps
+function fromCode(c) {
+  c = String(c || '').replace(/[\u200B-\u200D\uFEFF\u00A0]/g, '');
+  const m = c.match(/SHS[12]\s*-\s*([\s\S]*)/i); if (!m) throw new Error('sin prefijo');
+  let b = m[1].replace(/-/g, '+').replace(/_/g, '/').replace(/[^A-Za-z0-9+/=]/g, '').replace(/=+$/, '');
+  while (b.length % 4) b += '=';
+  const d = JSON.parse(decodeURIComponent(escape(atob(b))));
+  if (!d || !d.s || !d.s.owned) throw new Error('vacío');
+  return d;
+}
+function myCode() {
+  const a = getAccounts()[account] || {};
+  return toCode({ v:2, u:account, n:a.name || account, salt:a.salt, hash:a.hash, s:save });
+}
 function showAccount() {
   hideAll(); $('#account').hidden = false;
   const a = getAccounts()[account];
@@ -3803,18 +3824,39 @@ function showAccount() {
 $('#userChip').addEventListener('click', () => { if (state === 'menu' && account) showAccount(); });
 $('#accBack').addEventListener('click', showHome);
 $('#accOut').addEventListener('click', () => { lsDel('shs-session'); account = null; save = defaultSave(); showLogin(); });
+if (navigator.share) $('#accShare').hidden = false;
+$('#accShare').addEventListener('click', async () => {
+  const code = myCode(); $('#accCode').value = code;
+  try { await navigator.share({ title:'SuperHero Survivor', text:code }); } catch (e) {}
+});
 $('#accCopy').addEventListener('click', async () => {
-  const code = toCode({ u:account, s:save }); $('#accCode').value = code;
+  const code = myCode(); $('#accCode').value = code;
   let ok = false; try { await navigator.clipboard.writeText(code); ok = true; } catch (e) { $('#accCode').select(); try { ok = document.execCommand('copy'); } catch (e2) {} }
   $('#accMsg').classList.add('authok'); $('#accMsg').textContent = ok ? '¡Código copiado! Guárdalo o pégalo en otro dispositivo.' : 'Selecciona el código y cópialo a mano.';
 });
 $('#accLoad').addEventListener('click', () => {
   const msg = (t, ok) => { $('#accMsg').textContent = t; $('#accMsg').classList.toggle('authok', !!ok); };
-  let d; try { d = fromCode($('#accCode').value); } catch (e) { return msg('Ese código no es válido.'); }
-  if (!d || !d.s || !d.s.owned) return msg('Ese código no es válido.');
-  if (d.u && d.u !== account) return msg('Ese código es de otra cuenta (' + d.u + ').');
+  let d; try { d = fromCode($('#accCode').value); } catch (e) { return msg('No reconozco ese código. Cópialo entero, desde SHS hasta el final.'); }
   save = Object.assign(defaultSave(), d.s); persist();
   msg('¡Partida cargada!', true); setTimeout(showHome, 700);
+});
+
+$('#impOpen').addEventListener('click', () => { $('#impBox').hidden = !$('#impBox').hidden; $('#impMsg').textContent = ''; if (!$('#impBox').hidden) $('#impCode').focus(); });
+$('#impBtn').addEventListener('click', () => {
+  const msg = (t, ok) => { $('#impMsg').textContent = t; $('#impMsg').classList.toggle('authok', !!ok); };
+  let d; try { d = fromCode($('#impCode').value); } catch (e) { return msg('No reconozco ese código. Cópialo entero, desde SHS hasta el final.'); }
+  const id = String(d.u || '').toLowerCase();
+  if (!id) return msg('Este código es antiguo y no lleva la cuenta. Crea la cuenta aquí y luego cárgalo desde Tu cuenta.');
+  const accs = getAccounts();
+  if (id === ADMIN_ID) accs[id] = { name:'admin', admin:true, created:Date.now() };
+  else if (d.hash && d.salt) accs[id] = { name:d.n || id, salt:d.salt, hash:d.hash, created:Date.now() };
+  else return msg('Este código es antiguo y no lleva la contraseña. Crea la cuenta "' + id + '" aquí y luego cárgalo desde Tu cuenta.');
+  setAccounts(accs);
+  const prev = lsGet('shs-save:' + id); if (prev) lsSet('shs-save-backup:' + id, prev);
+  lsSet('shs-save:' + id, JSON.stringify(Object.assign(defaultSave(), d.s)));
+  lsSet('shs-session', id);
+  msg('¡Partida cargada! Entrando como ' + (d.n || id) + '…', true);
+  setTimeout(() => { $('#impBox').hidden = true; $('#impCode').value = ''; enterAccount(id); }, 700);
 });
 
 async function boot() {
