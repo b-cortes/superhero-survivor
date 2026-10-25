@@ -2067,26 +2067,32 @@ function roadPoint(d) {
 
 /* ================= Arena del otro universo ================= */
 const RAP = Math.round(ARENA_R / PX) + 6;
-const arenaImg = (() => {
+function makeArena(C) {
   const R = mulberry(4242), S = RAP * 2 + 6, c = document.createElement('canvas'); c.width = S; c.height = S + 18;
   const g = c.getContext('2d'), o = RAP + 3;
-  for (let k = 16; k >= 1; k--) { g.fillStyle = k > 12 ? '#120a24' : k % 3 ? '#2a1846' : '#231440'; pcirc(g, o, o + k, RAP); }
-  for (let i = 0; i < 40; i++) { const a = Math.PI * (0.1 + R() * 0.8), x = o + Math.cos(a) * RAP * 0.95, y = o + Math.sin(a) * RAP + 4 + R() * 10; g.fillStyle = '#ff4fd8'; g.fillRect(Math.round(x), Math.round(y), 1, 1 + (R() < 0.3)); }
+  for (let k = 16; k >= 1; k--) { g.fillStyle = k > 12 ? C.deep : k % 3 ? C.side : C.side2; pcirc(g, o, o + k, RAP); }
+  for (let i = 0; i < 40; i++) { const a = Math.PI * (0.1 + R() * 0.8), x = o + Math.cos(a) * RAP * 0.95, y = o + Math.sin(a) * RAP + 4 + R() * 10; g.fillStyle = C.glow; g.fillRect(Math.round(x), Math.round(y), 1, 1 + (R() < 0.3)); }
   g.fillStyle = OUT; pcirc(g, o, o, RAP + 1);
-  g.fillStyle = '#2e2152'; pcirc(g, o, o, RAP);
+  g.fillStyle = C.floor; pcirc(g, o, o, RAP);
   for (let y = -RAP; y <= RAP; y += 9) for (let x = -RAP; x <= RAP; x += 9) {
     if (x * x + y * y > (RAP - 6) * (RAP - 6)) continue;
-    g.fillStyle = R() < 0.5 ? '#35275e' : '#291d4a'; g.fillRect(o + x + 1, o + y + 1, 8, 8);
-    g.fillStyle = '#4a3a80'; g.fillRect(o + x + 1, o + y + 1, 8, 1);
+    g.fillStyle = R() < 0.5 ? C.t1 : C.t2; g.fillRect(o + x + 1, o + y + 1, 8, 8);
+    g.fillStyle = C.tl; g.fillRect(o + x + 1, o + y + 1, 8, 1);
   }
-  for (let i = 0; i < 14; i++) crackP(g, o + (R() - 0.5) * RAP * 1.4, o + (R() - 0.5) * RAP * 1.4, R, '#ff4fd8');
-  g.fillStyle = '#5ff0ff'; pring(g, o, o, RAP - 5);
-  g.fillStyle = '#c9a8ff'; for (let i = 0; i < 24; i++) { const a = i / 24 * TAU; g.fillRect(Math.round(o + Math.cos(a) * (RAP - 9)), Math.round(o + Math.sin(a) * (RAP - 9)), 2, 2); }
-  g.fillStyle = '#ff4fd8'; pring(g, o, o, 22); pring(g, o, o, 14);
-  g.fillStyle = '#6a56b0'; pring(g, o, o, RAP);
+  for (let i = 0; i < 14; i++) crackP(g, o + (R() - 0.5) * RAP * 1.4, o + (R() - 0.5) * RAP * 1.4, R, C.glow);
+  g.fillStyle = C.ring; pring(g, o, o, RAP - 5);
+  g.fillStyle = C.dots; for (let i = 0; i < 24; i++) { const a = i / 24 * TAU; g.fillRect(Math.round(o + Math.cos(a) * (RAP - 9)), Math.round(o + Math.sin(a) * (RAP - 9)), 2, 2); }
+  g.fillStyle = C.glow; pring(g, o, o, 22); pring(g, o, o, 14);
+  g.fillStyle = C.edge; pring(g, o, o, RAP);
   return c;
-})();
-const stars = Array.from({ length: 140 }, () => ({ x:Math.random() * 2000, y:Math.random() * 2000, s:Math.random() < 0.2 ? 2 : 1, c:Math.random() < 0.3 ? '#ff4fd8' : '#c9a8ff' }));
+}
+const ARENA = {
+  1:{ img:makeArena({ deep:'#120a24', side:'#2a1846', side2:'#231440', glow:'#ff4fd8', floor:'#2e2152', t1:'#35275e', t2:'#291d4a', tl:'#4a3a80', ring:'#5ff0ff', dots:'#c9a8ff', edge:'#6a56b0' }), bg:'#0d0720', stars:['#ff4fd8', '#c9a8ff'] },
+  2:{ img:makeArena({ deep:'#06140d', side:'#123824', side2:'#0e2c1c', glow:'#d6ff3f', floor:'#163a26', t1:'#1d4a30', t2:'#143521', tl:'#2f6a44', ring:'#ff4fa3', dots:'#9be34a', edge:'#3f8a5a' }), bg:'#051209', stars:['#d6ff3f', '#7bd34a'] },
+};
+const CRYSTAL2 = autoShade(makePix(['...C...','..CcC..','..Ccc..','.CCccc.','.Ccccc.','.Cccdc.','.Cccdc.','.ccddc.','.ccddc.','kkkkkkk','.kkkkk.'], { C:'#ffd0e8', c:'#ff86c2', d:'#c83a7a', k:'#123824' }, 'crystal2'));
+
+const stars = Array.from({ length: 140 }, () => ({ x:Math.random() * 2000, y:Math.random() * 2000, s:Math.random() < 0.2 ? 2 : 1, c:Math.random() < 0.3 ? 0 : 1 }));
 
 /* ================= Estado de partida ================= */
 let state = 'menu', P = null, heroKey = 'escarcha', mode = 'city', run = null;
@@ -3624,9 +3630,9 @@ function drawDeathOverlay() {
 function endGame(win) {
   state = 'over'; $('#pauseBtn').hidden = true;
   const r = settle(win) || { coins:0, tickets:0 };
-  const where = mode === 'rift' ? ' en el otro universo' : '';
+  const where = (mode === 'rift' ? ' en el otro universo' : '') + (world > 1 ? ' (mundo ' + world + ')' : '');
   const isRecord = run && time > run.prevBest && time >= 1;
-  $('#overTitle').textContent = isRecord ? '¡Nuevo récord!' : 'Ciudad Nexo ha caído';
+  $('#overTitle').textContent = isRecord ? '¡Nuevo récord!' : (world > 1 ? worldName() : 'Ciudad Nexo') + ' ha caído';
   $('#overText').textContent = isRecord
     ? `${HEROES[heroKey].name} ha resistido ${fmt(time)}${where}: es tu mejor tiempo${run.prevBest ? ' (antes ' + fmt(run.prevBest) + ')' : ''}. ¡Queda guardado en tu cuenta!`
     : `${HEROES[heroKey].name} ha caído${where} tras resistir ${fmt(time)}. Tu récord sigue en ${fmt(save.best)}${save.bestHero && HEROES[save.bestHero] ? ' con ' + HEROES[save.bestHero].name : ''}.`;
@@ -4016,14 +4022,14 @@ function drawAirFx(t) {
 function render(ts) {
   const t = ts / 1000;
   b.setTransform(1, 0, 0, 1, 0, 0);
-  b.fillStyle = mode === 'rift' ? '#0d0720' : theme() === 2 ? '#14261a' : '#16182a'; b.fillRect(0, 0, BW, BH);
+  b.fillStyle = mode === 'rift' ? ARENA[theme()].bg : theme() === 2 ? '#14261a' : '#16182a'; b.fillRect(0, 0, BW, BH);
   const shx = Math.round(rand(-shake, shake) / PX), shy = Math.round(rand(-shake, shake) / PX);
   const ox = Math.round(BW / 2 - camX / PX) + shx, oy = Math.round(BH / 2 - camY / PX) + shy;
   if (mode === 'rift') {
     for (const s of stars) {
       const x = ((s.x - camX / PX * 0.3) % BW + BW) % BW, y = ((s.y - camY / PX * 0.3) % BH + BH) % BH;
       if ((Math.floor(t * 3 + s.x) % 7) === 0) continue;
-      b.fillStyle = s.c; b.fillRect(Math.round(x), Math.round(y), s.s, s.s);
+      b.fillStyle = ARENA[theme()].stars[s.c]; b.fillRect(Math.round(x), Math.round(y), s.s, s.s);
     }
   }
   b.translate(ox, oy);
@@ -4038,10 +4044,10 @@ function render(ts) {
     for (const [x, y, s] of fireList) drawFireP(x, y, s, t);
   } else {
     const o = RAP + 3;
-    b.drawImage(arenaImg, -o, -o);
+    b.drawImage(ARENA[theme()].img, -o, -o); const CR = theme() === 2 ? CRYSTAL2 : CRYSTAL;
     for (let i = 0; i < 10; i++) {
       const a = i / 10 * TAU + 0.3, x = Math.round(Math.cos(a) * (RAP - 2)), y = Math.round(Math.sin(a) * (RAP - 2));
-      depth.push({ y, f:() => { b.drawImage(CRYSTAL, x - 4, y - CRYSTAL.height + 2); } });
+      depth.push({ y, f:() => { b.drawImage(CR, x - 4, y - CR.height + 2); } });
     }
   }
 
@@ -4286,23 +4292,23 @@ function drawHud(t) {
   ctx.drawImage(TICKET, 12, 92, 32, 20); ctx.fillStyle = '#ff8a3d'; txt(String(run.tickets), 50, 98);
   { const tl = threatLv(time), ta = ctx.textAlign; ctx.textAlign = 'left'; ctx.font = font(8); ctx.fillStyle = tl >= 6 ? '#ff4d6d' : tl >= 3 ? '#ff9f1c' : '#ffd23f'; txt((world > 1 ? 'MUNDO ' + world + ' · ' : '') + 'AMENAZA ' + tl, 16, 124); ctx.textAlign = ta; }
   ctx.textAlign = 'center'; ctx.fillStyle = '#eef1ff'; ctx.font = font(20); txt(fmt(time), VW / 2, 22);
-  ctx.fillStyle = mode === 'rift' ? '#c9a8ff' : '#c9cff0'; ctx.font = font(8); txt(mode === 'rift' ? 'OTRO UNIVERSO' : !run || !run.prevBest ? 'SIN LÍMITE' : time > run.prevBest ? '¡NUEVO RÉCORD!' : 'RÉCORD ' + fmt(run.prevBest), VW / 2, 50);
+  ctx.fillStyle = mode === 'rift' ? (theme() === 2 ? '#9be34a' : '#c9a8ff') : '#c9cff0'; ctx.font = font(8); txt(mode === 'rift' ? 'OTRO UNIVERSO' : !run || !run.prevBest ? 'SIN LÍMITE' : time > run.prevBest ? '¡NUEVO RÉCORD!' : 'RÉCORD ' + fmt(run.prevBest), VW / 2, 50);
 
   const big = enemies.find(e => ETYPES[e.type].rift) || enemies.find(e => ETYPES[e.type].boss);
   if (big) {
     const isRift = !!ETYPES[big.type].rift;
-    const w = Math.round(Math.min(isRift ? 640 : 420, VW - 80) / 3) * 3, x = Math.round((VW / 2 - w / 2) / 3) * 3, h = isRift ? 18 : 9, y = isRift ? Math.round((VH - 54) / 3) * 3 : 72;
+    const w = Math.round(Math.min(isRift ? 640 : 420, VW - 80) / 3) * 3, x = Math.round((VW / 2 - w / 2) / 3) * 3, h = isRift ? 18 : 9, y = isRift ? Math.round((VH - 54) / 3) * 3 : VW < 600 ? 144 : 72;
     ctx.fillStyle = OUT; ctx.fillRect(x - 3, y - 3, w + 6, h + 6);
-    ctx.fillStyle = isRift ? '#2a0f3a' : '#4a1d10'; ctx.fillRect(x, y, w, h);
+    const jg = theme() === 2; ctx.fillStyle = isRift ? (jg ? '#0e2c1c' : '#2a0f3a') : '#4a1d10'; ctx.fillRect(x, y, w, h);
     const frac = Math.max(0, big.hp / big.maxHp);
-    ctx.fillStyle = isRift ? (frac < 0.5 ? '#ff4fd8' : '#c9a8ff') : '#d2632f'; ctx.fillRect(x, y, Math.round(w * frac / 3) * 3, h);
+    ctx.fillStyle = isRift ? (frac < 0.5 ? (jg ? '#ff4fa3' : '#ff4fd8') : (jg ? '#9be34a' : '#c9a8ff')) : '#d2632f'; ctx.fillRect(x, y, Math.round(w * frac / 3) * 3, h);
     ctx.fillStyle = 'rgba(255,255,255,.25)'; ctx.fillRect(x, y, Math.round(w * frac / 3) * 3, 3);
     if (isRift) { ctx.fillStyle = OUT; ctx.fillRect(x + Math.round(w / 2 / 3) * 3, y, 3, h); }
     ctx.fillStyle = '#ffd23f'; ctx.font = font(isRift ? 11 : 8);
     txt(ETYPES[big.type].name.toUpperCase() + (isRift && big.lvl ? ' · NV ' + big.lvl : '') + (isRift && frac < 0.5 ? ' · ¡FURIA!' : ''), VW / 2, isRift ? y - 20 : y + h + 8);
     if (isRift && big.call && big.call.t > 0) { ctx.fillStyle = '#ffffff'; ctx.globalAlpha = Math.min(1, big.call.t * 2); ctx.font = font(9); txt('» ' + big.call.txt.toUpperCase() + ' «', VW / 2, y - 40); ctx.globalAlpha = 1; }
   }
-  let by = 72;
+  let by = VW < 600 && big && !ETYPES[big.type].rift ? 174 : 72;
   ctx.textAlign = 'right'; ctx.font = font(8);
   for (const k in P.boosts) {
     const B = BOOSTS[k], left = P.boosts[k];
@@ -5121,13 +5127,11 @@ function buildSnap(p) {
   const nr = (x, y, r2) => (x - cx) ** 2 + (y - cy) ** 2 < r2;
   const pl = [[NET.id, Math.round(P.x), Math.round(P.y), Math.round(P.hp), Math.round(P.maxHp), P.ring, P.moving ? 1 : 0, P.dead ? 1 : 0, HKEYS.indexOf(heroKey), NET.name, +(P.reviveT || 0).toFixed(1)]];
   for (const q of NET.peers.values()) pl.push([q.id, Math.round(q.x), Math.round(q.y), Math.round(q.hp), Math.round(q.maxHp), q.ring, q.moving ? 1 : 0, q.dead ? 1 : 0, HKEYS.indexOf(q.hero), q.name, q.rv || 0]);
-  const e = []; let ne = 0;
+  const e = [];
   const maxE = p.link === 'direct' ? 260 : 130;
-  for (const o of enemies) {
-    if (o.dead) continue;
-    const T = ETYPES[o.type];
-    if (!T.big && !nr(o.x, o.y, R2)) continue;
-    if (++ne > maxE && !T.big) continue;
+  let cand = enemies.filter(o => !o.dead && (ETYPES[o.type].big || nr(o.x, o.y, R2)));
+  if (cand.length > maxE) { const dd = o => ETYPES[o.type].big ? -1 : (o.x - cx) ** 2 + (o.y - cy) ** 2; cand = cand.map(o => [dd(o), o]).sort((a, c) => a[0] - c[0]).slice(0, maxE).map(a => a[1]); }
+  for (const o of cand) {
     const fl = (o.flash > 0 ? 1 : 0) | (o.frozen > 0 ? 2 : 0) | (o.slow > 0 ? 4 : 0) | ((o.st === 'wind' || o.tele || o.stomp > 0 || (o.qN > 0 && o.qT > 0.4)) ? 8 : 0) | (o.spm !== 0 ? 16 : 0) | (o.root > 0 ? 32 : 0) | (o.elite ? 64 : 0) | (o.cloak > 0 ? 128 : 0);
     e.push(o.id, ETK.indexOf(o.type), Math.round(o.x), Math.round(o.y), Math.ceil(o.hp), Math.round(o.maxHp), fl, o.ring | 0, Math.round(o.jumpH || 0));
   }
@@ -5169,7 +5173,7 @@ function hostTeleportAll(cx, cy) {
 function hostCoopDeath() {
   if (!P.dead) { P.dead = true; P.hp = 0; P.reviveT = 0; P.deathT = 0; spec.id = null; for (let i = 0; i < 20; i++) parts.push({ x:P.x, y:P.y - 12, vx:rand(-170, 170), vy:rand(-220, 30), t:rand(0.5, 1), c:pick(['#ff4d6d', '#ffffff', '#ffd23f']) }); say('¡Has caído! Mira a tus compañeros mientras te reviven', 3, '#ff4d6d'); netQueue(['s', '¡' + NET.name + ' ha caído! Ve a revivirle', 3, '#ff4d6d']); }
   const anyAlive = [...NET.peers.values()].some(p => !p.dead);
-  if (!anyAlive) { const m = { k:'end', why:'Todo el equipo ha caído.' }; sendAll(m); sendAll(m); coopEnd('Todo el equipo ha caído.'); }
+  if (!anyAlive) { if (!NET.wipeAt) { NET.wipeAt = performance.now(); sayAll('¡Todo el equipo ha caído!', 3, '#ff4d6d'); } if (performance.now() - NET.wipeAt >= 2400) { NET.wipeAt = 0; const m = { k:'end', why:'Todo el equipo ha caído.' }; sendAll(m); sendAll(m); coopEnd('Todo el equipo ha caído.'); } } else NET.wipeAt = 0;
 }
 // revivir: si estás caído y un aliado vivo se queda a tu lado
 function reviveTick(dt, allies) {
