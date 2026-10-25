@@ -707,7 +707,7 @@ const ETYPES = {
   cofre:   { name:'Cofre pequeño',    hp:45,   speed:0,   r:13, dmg:0,  xp:0,  color:'#c8892a', static:true },
   golem:   { name:'Gólem Cristalino', hp:3200, speed:42,  r:32, dmg:30, xp:0,  color:'#5ff0ff', big:true, rift:true, ai:'golem' },
   ceniza:  { name:'Señor de la Ceniza', hp:3000, speed:55, r:30, dmg:28, xp:0, color:'#ff6a3d', big:true, rift:true, ai:'ceniza' },
-  titan:   { name:'Titán Mecánico',   hp:3600, speed:38,  r:34, dmg:32, xp:0,  color:'#ffd23f', big:true, rift:true, ai:'titan' },
+  titan:   { name:'Titán Mecánico',   hp:3200, speed:38,  r:34, dmg:32, xp:0,  color:'#ffd23f', big:true, rift:true, ai:'titan' },
   arlequin:{ name:'Arlequín del Caos', hp:2600, speed:80, r:26, dmg:22, xp:0,  color:'#ff4fa3', big:true, rift:true, fly:false, ai:'arlequin' },
   arana:   { name:'Araña Mecánica',   hp:8,    speed:140, r:9,  dmg:6,  xp:1,  color:'#6b6f7d', ai:'arana' },
   tirador: { name:'Soldado Láser',    hp:22,   speed:62,  r:11, dmg:8,  xp:2,  color:'#5a6278', ai:'tirador' },
@@ -847,17 +847,66 @@ function makePix(rows, pal, name) {
   return c;
 }
 // sombreado automático: luz arriba a la izquierda, sombra abajo a la derecha
+// sombreado volumétrico: cada parte del cuerpo se "hincha" según la distancia a su borde y se ilumina como un objeto 3D
+// (luz desde arriba y hacia la cámara, simétrica para que al voltear un sprite la luz no cambie de lado)
+const SH_L = (() => { const v = [0, -0.6, 0.8], l = Math.hypot(...v); return v.map(x => x / l); })();
+const SH_H = (() => { const v = [SH_L[0], SH_L[1], SH_L[2] + 1], l = Math.hypot(...v); return v.map(x => x / l); })();
 function autoShade(c) {
-  const g = c.getContext('2d'), d = g.getImageData(0, 0, c.width, c.height), p = d.data, W = c.width, H = c.height;
-  const src = new Uint8ClampedArray(p);
-  const isEdge = (x, y) => { if (x < 0 || y < 0 || x >= W || y >= H) return true; const i = (y * W + x) * 4; return src[i + 3] === 0 || (src[i] === 11 && src[i + 1] === 14 && src[i + 2] === 28); };
+  const g = c.getContext('2d'), W = c.width, H = c.height, d = g.getImageData(0, 0, W, H), p = d.data, src = new Uint8ClampedArray(p), N = W * H;
+  const ins = new Uint8Array(N), isOut = i => src[i * 4 + 3] && src[i * 4] === 11 && src[i * 4 + 1] === 14 && src[i * 4 + 2] === 28;
+  for (let i = 0; i < N; i++) if (src[i * 4 + 3] > 0 && !isOut(i)) ins[i] = 1;
+  const diff = (i, j) => Math.abs(src[i * 4] - src[j * 4]) + Math.abs(src[i * 4 + 1] - src[j * 4 + 1]) + Math.abs(src[i * 4 + 2] - src[j * 4 + 2]);
+  // tamaño de cada zona de color: los detalles pequeños (ojos, emblemas) no crean relieve propio
+  const comp = new Int32Array(N).fill(-1), csize = [];
+  for (let i0 = 0; i0 < N; i0++) {
+    if (!ins[i0] || comp[i0] >= 0) continue;
+    const id = csize.length, st = [i0]; comp[i0] = id; let n = 0;
+    while (st.length) { const i = st.pop(); n++; const x = i % W, y = (i / W) | 0; for (const j of [x > 0 ? i - 1 : -1, x < W - 1 ? i + 1 : -1, y > 0 ? i - W : -1, y < H - 1 ? i + W : -1]) if (j >= 0 && ins[j] && comp[j] < 0 && diff(i, j) < 40) { comp[j] = id; st.push(j); } }
+    csize.push(n);
+  }
+  const D = new Float32Array(N);
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-    const i = (y * W + x) * 4; if (isEdge(x, y)) continue;
-    let k = 1;
-    if (isEdge(x, y - 1) || isEdge(x - 1, y)) k = 1.22;
-    else if (isEdge(x, y + 1)) k = 0.72;
-    else if (isEdge(x + 1, y)) k = 0.84;
-    if (k !== 1) for (let j = 0; j < 3; j++) p[i + j] = Math.min(255, src[i + j] * k + (k > 1 ? 10 : 0));
+    const i = y * W + x; if (!ins[i]) { D[i] = 0; continue; }
+    let v = 99;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const xx = x + dx, yy = y + dy;
+      if (xx < 0 || yy < 0 || xx >= W || yy >= H) { v = 1; break; }
+      const j = yy * W + xx;
+      if (!ins[j]) { v = 1; break; }
+      if (diff(i, j) > 110 && csize[comp[i]] > 8 && csize[comp[j]] > 8) v = Math.min(v, 1.7);
+    }
+    D[i] = v;
+  }
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const i = y * W + x; if (!ins[i]) continue; let v = D[i]; if (x > 0) v = Math.min(v, D[i - 1] + 1); if (y > 0) { v = Math.min(v, D[i - W] + 1); if (x > 0) v = Math.min(v, D[i - W - 1] + 1.41); if (x < W - 1) v = Math.min(v, D[i - W + 1] + 1.41); } D[i] = v; }
+  for (let y = H - 1; y >= 0; y--) for (let x = W - 1; x >= 0; x--) { const i = y * W + x; if (!ins[i]) continue; let v = D[i]; if (x < W - 1) v = Math.min(v, D[i + 1] + 1); if (y < H - 1) { v = Math.min(v, D[i + W] + 1); if (x < W - 1) v = Math.min(v, D[i + W + 1] + 1.41); if (x > 0) v = Math.min(v, D[i + W - 1] + 1.41); } D[i] = v; }
+  let mx = 1; for (let i = 0; i < N; i++) if (D[i] > mx) mx = D[i];
+  const R = Math.max(2, Math.min(7, mx * 0.85)), hgt = new Float32Array(N);
+  for (let i = 0; i < N; i++) hgt[i] = ins[i] ? Math.sqrt(Math.min(D[i], R) / R) : 0;
+  const hAt = (x, y) => (x < 0 || y < 0 || x >= W || y >= H) ? 0 : hgt[y * W + x];
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const i = y * W + x, o = i * 4;
+    if (!ins[i]) {
+      // contorno coloreado: un tono oscuro del color de al lado (se ve menos plano que un borde siempre igual)
+      if (isOut(i)) {
+        let best = -1;
+        for (const [dx, dy] of [[0, -1], [-1, 0], [1, 0], [0, 1]]) { const xx = x + dx, yy = y + dy; if (xx >= 0 && yy >= 0 && xx < W && yy < H && ins[yy * W + xx]) { best = yy * W + xx; break; } }
+        if (best >= 0) for (let k = 0; k < 3; k++) p[o + k] = Math.round(src[o + k] * 0.55 + src[best * 4 + k] * 0.2);
+      }
+      continue;
+    }
+    const dx = (hAt(x + 1, y) - hAt(x - 1, y)) * 1.7, dy = (hAt(x, y + 1) - hAt(x, y - 1)) * 1.7, nl = Math.hypot(dx, dy, 1);
+    const nx = -dx / nl, ny = -dy / nl, nz = 1 / nl;
+    const dif = Math.max(0, nx * SH_L[0] + ny * SH_L[1] + nz * SH_L[2]);
+    let sh = 0.5 + 0.66 * dif;
+    const fy = y / H; if (fy > 0.55) sh *= 1 - 0.2 * (fy - 0.55) / 0.45;
+    sh = Math.round(sh * 10) / 10;
+    const spec = Math.pow(Math.max(0, nx * SH_H[0] + ny * SH_H[1] + nz * SH_H[2]), 24) * (hgt[i] > 0.5 ? 70 : 0);
+    // luz de contorno fría en los laterales bajos (separa la figura del fondo)
+    const rim = (ny > 0.25 && Math.abs(nx) > 0.35) ? 26 : 0;
+    const cool = sh < 0.8 ? (0.8 - sh) * 40 : 0;
+    p[o] = Math.min(255, src[o] * sh + spec + rim * 0.6);
+    p[o + 1] = Math.min(255, src[o + 1] * sh + spec + rim * 0.75);
+    p[o + 2] = Math.min(255, src[o + 2] * sh + spec + rim + cool);
   }
   g.putImageData(d, 0, 0); return c;
 }
@@ -1827,6 +1876,43 @@ function pring(g, cx, cy, r, frac = 1, sq = 1, a0 = -Math.PI / 2) {
   const n = Math.max(8, Math.round(TAU * r));
   for (let i = 0; i < n * frac; i++) { const a = a0 + i / n * TAU; g.fillRect(Math.round(cx + Math.cos(a) * r), Math.round(cy + Math.sin(a) * r * sq), 1, 1); }
 }
+const SHA = Array.from({ length:11 }, (_, i) => `rgba(0,0,0,${(0.1 + 0.022 * i).toFixed(3)})`);
+function shadowE(x, y, w, k = 1) {
+  // sombra elíptica suave; k < 1 cuando el cuerpo está en el aire (sombra más pequeña y clara)
+  w = Math.max(3, Math.round(w * (0.55 + 0.45 * k)));
+  b.fillStyle = SHA[Math.max(0, Math.min(10, Math.round(k * 10)))];
+  b.fillRect(Math.round(x - w / 2) + 1, y - 1, Math.max(1, w - 2), 3);
+  b.fillRect(Math.round(x - w / 2), y, w, 1);
+}
+// dibuja un sprite apoyado en (bx, by) deformándolo: sx/sy = escala, lean = inclinación arriba (px), lift = altura
+function drawBody(s, bx, by, sx, sy, lean, lift) {
+  const w = s.width, h = s.height, W = Math.max(1, Math.round(w * sx)), Hh = Math.max(1, Math.round(h * sy)), top = by - Hh + 1 - lift;
+  lean = Math.round(lean);
+  if (!lean) { if (W === w && Hh === h) b.drawImage(s, bx - (w >> 1), top); else b.drawImage(s, bx - (W >> 1), top, W, Hh); return; }
+  const n = h > 34 ? 4 : Math.abs(lean) > 1 ? 3 : 2;
+  for (let i = 0; i < n; i++) {
+    const s0 = Math.floor(i * h / n), s1 = Math.floor((i + 1) * h / n), d0 = Math.round(s0 * Hh / h), d1 = Math.round(s1 * Hh / h);
+    if (d1 <= d0) continue;
+    const off = Math.round(lean * (1 - (s0 + s1) / 2 / h));
+    b.drawImage(s, 0, s0, w, s1 - s0, bx - (W >> 1) + off, top + d0, W, d1 - d0);
+  }
+}
+// estado de animación de cada cuerpo: tiempo entre fotogramas, giro con efecto de rotación, velocidad suavizada
+function animState(e, t) {
+  const dtv = Math.min(0.05, Math.max(0, t - (e.lt || t))); e.lt = t;
+  if (e.bornT === undefined) e.bornT = t;
+  if (e.px === undefined) { e.px = e.x; e.py = e.y; }
+  const vx = dtv > 0 ? (e.x - e.px) / dtv : 0, vy = dtv > 0 ? (e.y - e.py) / dtv : 0; e.px = e.x; e.py = e.y;
+  e.vxs = (e.vxs || 0) * 0.8 + (Math.abs(vx) < 900 ? vx : 0) * 0.2; e.vys = (e.vys || 0) * 0.8 + (Math.abs(vy) < 900 ? vy : 0) * 0.2;
+  return dtv;
+}
+function turnScale(e, want, dtv) {
+  // al cambiar de lado el cuerpo "gira": se estrecha, se voltea y se vuelve a ensanchar
+  if (e.fc === undefined) e.fc = want;
+  if (e.tw > 0) { e.tw = Math.max(0, e.tw - dtv); return 0.25 + 0.75 * (1 - e.tw / 0.08); }
+  if (want !== e.fc) { e.tn = (e.tn || 0) + dtv; if (e.tn > 0.08) { e.fc = want; e.tn = 0; e.tw = 0.08; return 0.25; } return 0.25 + 0.75 * (1 - e.tn / 0.08); }
+  e.tn = 0; return 1;
+}
 function shadowP(x, y, w) {
   b.fillStyle = 'rgba(0,0,0,.38)';
   b.fillRect(Math.round(x - w / 2) + 1, y, Math.max(1, w - 2), 1);
@@ -2519,7 +2605,7 @@ const fmt = s => { s = Math.floor(s); return Math.floor(s / 60) + ':' + String(s
 const say = (text, t = 2.5, color = '#ffd23f') => { banner = { text, t, color }; };
 const sayAll = (text, t = 2.5, color = '#ffd23f') => { say(text, t, color); if (isHost()) netQueue(['s', text, t, color]); };
 
-function clearFx() { shots = []; patches = []; bolts = []; discs = []; slashes = []; pulses = []; vials = []; missiles = []; holes = []; meteors = []; timeRings = []; tornados = []; roots = []; saws = []; ghosts = []; ebullets = []; warnings = []; traps = []; turrets = []; quakes = []; rocks = []; hz = []; cohetes = []; campanas = []; mareas = []; astros = []; hexes = []; auroras = []; }
+function clearFx() { shots = []; patches = []; bolts = []; discs = []; slashes = []; pulses = []; vials = []; missiles = []; holes = []; meteors = []; timeRings = []; tornados = []; roots = []; saws = []; ghosts = []; ebullets = []; warnings = []; traps = []; turrets = []; quakes = []; rocks = []; hz = []; corpses = []; cohetes = []; campanas = []; mareas = []; astros = []; hexes = []; auroras = []; }
 function baseStats(key) {
   const H = HEROES[key], o = save.owned[key] || { stars:0, gen:{} }, R = RAR[H.rarity];
   const star = 1 + 0.06 * o.stars, G = o.gen;
@@ -2541,7 +2627,7 @@ function newGame(key) {
   run = { coins:0, tickets:0, settled:false, nextTicket:180, prevBest:save.best || 0, recordSaid:false, nextMile:300 };
   enemies = []; gems = []; texts = []; parts = []; booms = []; smoke = []; clearFx(); wst = {};
   outposts = []; rift = null; exitPortal = null; saved = null; trans = null; mode = 'city';
-  bigChests = []; chestT = 8; bigChestT = 50; strikeT = 40;
+  bigChests = []; chestT = 8; bigChestT = 50; strikeT = 40; hordeT = 75;
   time = 0; kills = 0; bossKills = 0; spawnAcc = 0; nextBoss = BOSS_EVERY; pendingLv = 0; shake = 0; decoBoom = 3;
   outpostT = 8; riftT = 75; miniT = 60; miniN = 0;
   say(save.best ? 'Récord a batir: ' + fmt(save.best) : '¡Aguanta todo lo que puedas!', 2.4);
@@ -2606,9 +2692,9 @@ function spawnEnemy(type, x, y) {
   if (x === undefined) { const C = spawnCenter(), a = Math.random() * TAU, d = Math.hypot(VW * 1.35, VH) / 2 + 50; x = C.x + Math.cos(a) * d; y = C.y + Math.sin(a) * d; }
   // amenaza: cada 2 minutos los enemigos son más duros (crecimiento suave y compuesto)
   const f = (time - worldStart) / 120;
-  const scale = T.rift ? Math.pow(1.18, f) : T.mini ? Math.pow(1.27, f) : T.boss ? Math.pow(1.25, f) : Math.pow(1.5, f);
+  const plv = P ? P.lv : 1, scale = T.rift ? Math.pow(1.18, f) : T.mini ? Math.pow(1.3, f) * (1 + 0.012 * (plv - 1)) : T.boss ? Math.pow(1.28, f) * (1 + 0.022 * (plv - 1)) : Math.pow(1.52, f);
   const hp = T.hp * scale * (T.static ? 1 : worldHp()) * (isHost() && !T.static ? 1 + (T.big ? 0.5 : 0.25) * (coopN() - 1) : 1);
-  const e = { id:++eidN, type, x, y, hp, maxHp:hp, r:T.r, speed:T.speed * (T.big ? 1 : rand(0.9, 1.1)) * (1 + Math.min(0.3, 0.035 * Math.floor(f))) * (1 + 0.05 * Math.min(4, world - 1)), dmg:T.dmg * enemyDmgMul(time), xp:Math.round(T.xp * (1 + 0.3 * (world - 1))), kx:0, ky:0,
+  const e = { id:++eidN, type, x, y, hp, maxHp:hp, r:T.r, speed:T.speed * (T.big ? 1 : rand(0.9, 1.1)) * (1 + Math.min(0.3, 0.035 * Math.floor(f))) * (1 + 0.05 * Math.min(4, world - 1)), dmg:T.dmg * enemyDmgMul(time) * (T.boss ? 1.25 : T.mini ? 1.12 : 1), xp:Math.round(T.xp * (1 + 0.3 * (world - 1))), kx:0, ky:0,
     flash:0, slow:0, frozen:0, orbCd:0, dead:false, ring:2, target:2, turnT:0, walkT:0, seed:Math.random() * 10, side:Math.random() < 0.5 ? 1 : -1, atk:2, step:0, st:'chase', mx:0, my:0, spm:1 };
   // a partir de la amenaza 3 aparecen enemigos de élite (más vida, más daño, mejor botín)
   if (!T.big && !T.static && !T.mini && !T.rift && f >= 1.5 && !T.summon && Math.random() < Math.min(0.4, 0.06 + 0.04 * (f - 1.5))) {
@@ -2618,14 +2704,16 @@ function spawnEnemy(type, x, y) {
 }
 // Jefes de grieta acordes al nivel del equipo: su vida sigue el daño por segundo típico de un héroe a ese nivel
 // (medido en pruebas: ~40 a nivel 3, ~175 a nivel 15, ~450 a nivel 35) para que caigan en unos 40-50 s.
-const riftHpFor = (type, L) => Math.round(34 * (5 + 11.5 * L + 0.06 * L * L) * (ETYPES[type].hp / 3000) * Math.pow(1.55, world - 1));
-const riftDmgMul = () => Math.min(1.85, 0.75 + 0.027 * (P ? P.lv : 1)) * Math.pow(1.35, world - 1);
+const riftHpFor = (type, L) => Math.round(34 * (5 + 11.5 * L + 0.06 * L * L) * (1 + Math.pow(Math.max(0, L - 12) / 22, 1.3)) * (ETYPES[type].hp / 3000) * Math.pow(1.55, world - 1));
+const riftDmgMul = () => Math.min(2.4, 0.75 + 0.032 * (P ? P.lv : 1)) * Math.pow(1.35, world - 1);
 function riftScale(e) {
   const L = P.lv, n = isHost() ? coopN() : 1;
   e.hp = e.maxHp = riftHpFor(e.type, L) * (0.15 + 0.85 * n);
   e.dmg = ETYPES[e.type].dmg; e.lvl = L;
+  e.speed = ETYPES[e.type].speed * (1 + Math.min(0.3, 0.006 * L));
+  e.haste = Math.min(0.55, 0.011 * Math.max(0, L - 5));
 }
-function enemyDmgMul(t) { return Math.pow(1.18, (t - worldStart) / 120) * worldDmg(); }
+function enemyDmgMul(t) { return Math.pow(1.2, (t - worldStart) / 120) * worldDmg(); }
 const threatLv = t => 1 + Math.floor((t - worldStart) / 120);
 function boom(x, y, r, deco) {
   booms.push({ x, y, r, t:0.45, max:0.45 });
@@ -2643,7 +2731,27 @@ function hit(e, amt, kx = 0, ky = 0, quiet = false) {
   if (e.hp <= 0) kill(e);
 }
 const drop = (x, y, kind, v) => gems.push({ x:x + rand(-14, 14), y:y + rand(-14, 14), kind, v });
+let corpses = [];
+function addCorpse(e) {
+  const T = ETYPES[e.type]; if (!T || T.static || T.rift || corpses.length > 70) return;
+  corpses.push({ type:e.type, fc:e.fc || 0, x:e.x, y:e.y, r:e.r, big:!!T.big, fly:!!T.fly, elite:!!e.elite, dx:Math.sign(e.vxs || (e.x - P.x)) || 1 });
+}
+function drawCorpse(c, t) {
+  if (c.t0 === undefined) c.t0 = t;
+  const age = t - c.t0, L = c.big ? 0.7 : 0.42, k = Math.min(1, age / L);
+  const sp = ESPR[c.type]; if (!sp) return;
+  const s = sp[0][c.fc][age < 0.08 ? 1 : 0], bx = P2(c.x) + Math.round(c.dx * k * 4), by = P2(c.y) + Math.round(c.r / PX);
+  shadowE(bx, by, s.width - 2, 1 - k);
+  b.globalAlpha = Math.max(0, 1 - k * k);
+  // se encoge hacia el suelo y se ensancha como si cayera hacia atrás
+  const lift = c.fly ? Math.round((1 - k) * 4) : 0;
+  drawBody(s, bx, by, 1 + 0.35 * k, Math.max(0.12, 1 - 0.88 * k), c.dx * 3 * k, lift);
+  b.globalAlpha = 1;
+  if (age < 0.12) { b.fillStyle = 'rgba(255,255,255,.55)'; pring(b, bx, by - (s.height >> 1), Math.round(4 + age * 90), 1, 0.8); }
+  if (age >= L) c.done = true;
+}
 function kill(e) {
+  addCorpse(e);
   if (isGuest()) { e.dead = true; return; }
   e.dead = true;
   const T = ETYPES[e.type];
@@ -3248,7 +3356,7 @@ function campTick(q, dt) {
   if (q.ax === undefined || Math.hypot(q.x - q.ax, q.y - q.ay) > 110) { q.ax = q.x; q.ay = q.y; q.campT = 0; }
   else q.campT = (q.campT || 0) + dt;
 }
-let strikeT = 40;
+let strikeT = 40, hordeT = 75;
 function updateStrikes(dt) {
   const players = alivePlayers();
   for (const q of players) campTick(q, dt);
@@ -3273,7 +3381,7 @@ function enterWorld() {
   mode = 'city'; saved = null; enemies = []; gems = []; clearFx(); outposts = []; bigChests = []; rift = null; exitPortal = null; dimPortal = null;
   resetUpgrades();
   P.x = RW_W / 2; P.y = RW_W / 2; camX = P.x; camY = P.y; P.inv = 2.5;
-  nextBoss = time + BOSS_EVERY; riftT = 75; miniT = 60; miniN = 0; outpostT = 8; chestT = 8; bigChestT = 50; strikeT = 40; spawnAcc = 0; run.threat = 1;
+  nextBoss = time + BOSS_EVERY; riftT = 75; miniT = 60; miniN = 0; outpostT = 8; chestT = 8; bigChestT = 50; strikeT = 40; hordeT = 75; spawnAcc = 0; run.threat = 1;
   if (isHost()) { for (const p of NET.peers.values()) { p.maxed = false; p.dead = false; } hostTeleportAll(P.x, P.y); }
   for (let i = 0; i < 6; i++) spawnEnemy();
   sayAll('¡Mundo ' + world + ': ' + worldName() + '! Pierdes tus mejoras, pero tu héroe gana +' + (10 * (world - 1)) + '% de daño y +' + (8 * (world - 1)) + '% de vida', 5, '#d6ff3f');
@@ -3387,9 +3495,18 @@ function update(dt) {
   for (const k in P.boosts) { P.boosts[k] -= dt; if (P.boosts[k] <= 0) delete P.boosts[k]; }
 
   if (mode === 'city') {
-    if (enemies.length < 320) {
-      spawnAcc += Math.min(16, 1.3 + (time - worldStart) / 34) * dt * (1 + 0.55 * (coopN() - 1));
+    if (enemies.length < 340) {
+      spawnAcc += Math.min(20, 1.4 + (time - worldStart) / 28) * dt * (1 + 0.55 * (coopN() - 1));
       while (spawnAcc >= 1) { spawnEnemy(); spawnAcc--; }
+    }
+    hordeT -= dt;
+    if (hordeT <= 0 && enemies.length < 360) {
+      const wt = time - worldStart, n = Math.round(Math.min(48, 12 + wt / 12) * (1 + 0.35 * (coopN() - 1))), c = spawnCenter();
+      const type = themed(pick(wt > 240 ? ['mutante', 'arana', 'murcielago', 'bomba', 'bruto'] : ['mutante', 'arana', 'murcielago']));
+      const a0 = Math.random() * TAU, R0 = Math.hypot(VW, VH) * 0.55 + 60;
+      for (let i = 0; i < n; i++) { const a = a0 + i / n * TAU; spawnEnemy(type, c.x + Math.cos(a) * R0, c.y + Math.sin(a) * R0); }
+      sayAll('¡Una horda de ' + ETYPES[type].name + ' os rodea!', 2.6, '#ff9f1c');
+      hordeT = Math.max(38, 60 - wt / 30);
     }
     if (time >= nextBoss) { const bt = themed('jefe'); spawnEnemy(bt); nextBoss += BOSS_EVERY; sayAll('¡Llega el ' + ETYPES[bt].name + '!'); shake = 12; }
     updateEvents(dt);
@@ -3410,7 +3527,7 @@ function update(dt) {
     e.mx = dx / d; e.my = dy / d; e.spm = 1;
     if (e.frozen > 0) { e.frozen -= dt; e.spm = 0; }
     else if (e.root > 0) { e.root -= dt; e.spm = 0; }
-    else if (T.ai) { if (TP !== P) { const realP = P; P = TP; try { AI[T.ai](e, dt, dx, dy, d); } finally { P = realP; } } else AI[T.ai](e, dt, dx, dy, d); }
+    else if (T.ai) { if (e.haste && e.atk > 0) e.atk -= dt * e.haste; if (TP !== P) { const realP = P; P = TP; try { AI[T.ai](e, dt, dx, dy, d); } finally { P = realP; } } else AI[T.ai](e, dt, dx, dy, d); }
     const sp = e.speed * e.spm * (e.slow > 0 ? 0.45 : 1);
     e.x += e.mx * sp * dt + e.kx * dt; e.y += e.my * sp * dt + e.ky * dt;
     e.kx *= damp; e.ky *= damp;
@@ -4430,40 +4547,52 @@ function drawEnemy(e, t) {
     const s = bossSprite(e.type, dir, fr, fl, e.flash > 0 ? 1 : fz ? 2 : 0);
     const bx = P2(e.x), by = P2(e.y) + Math.round(e.r / PX);
     const lift = (T.fly ? -6 + Math.round(Math.sin(t * 3) * 2) : 0) - Math.round(P2(e.jumpH || 0));
-    shadowP(bx, by, T.fly ? 18 : 26); shadowP(bx, by - 1, T.fly ? 12 : 20);
+    animState(e, t);
+    shadowE(bx, by, T.fly ? 22 : 30, Math.max(0.3, 1 + lift / 30));
     const wind = e.st === 'wind' || e.tele || e.stomp > 0 || (e.qN > 0 && e.qT > 0.4) || (e.leap && e.leap.t < 0.15);
     if (e.cloak > 0) b.globalAlpha = 0.16;
     const x = bx - (s.width >> 1) + (wind ? (Math.floor(t * 30) % 2 ? 1 : -1) : 0), y = by - BFY - 1 + lift;
-    if (wind) b.drawImage(s, x - 1, y + 3, s.width + 2, s.height - 3);
-    else if (moving && Math.abs(P.x - e.x) > 40) { const lean = P.x > e.x ? 1 : -1, cut = 22; b.drawImage(s, 0, 0, s.width, cut, x + lean, y, s.width, cut); b.drawImage(s, 0, cut, s.width, s.height - cut, x, y + cut, s.width, s.height - cut); }
-    else b.drawImage(s, x, y);
+    const stp = moving ? Math.sin(e.walkT * 8 * Math.PI / 2) : 0, br = Math.sin(t * 2.2 + e.seed);
+    let bsx = moving ? 1 - 0.03 * stp : 1 - 0.012 * br, bsy = moving ? 1 + 0.04 * stp : 1 + 0.02 * br;
+    if (wind) { bsx = 1.06; bsy = 0.92; }
+    if (e.flash > 0) { bsx *= 1.05; bsy *= 0.95; }
+    if (e.jumpH > 0) { bsx = 0.94; bsy = 1.08; }
+    const blean = moving ? Math.max(-3, Math.min(3, e.vxs / 40)) : 0;
+    drawBody(s, x + (s.width >> 1), y + s.height - 1, bsx, bsy, blean, 0);
     b.globalAlpha = 1;
     if (e.root > 0) { b.fillStyle = '#7ac060'; for (let i = -2; i <= 2; i++) b.fillRect(bx + i * 4, by - 5, 1, 6); }
     return;
   }
-  const T = ETYPES[e.type], f = Math.floor(t * 8 + e.seed) % 4, fz = e.frozen > 0;
-  const s = ESPR[e.type][fz ? 0 : f][P.x < e.x ? 1 : 0][e.flash > 0 ? 1 : fz ? 2 : 0];
+  const T = ETYPES[e.type], fz = e.frozen > 0, dtv = animState(e, t);
+  const moving = e.spm !== 0 && !fz, sp = Math.hypot(e.vxs, e.vys);
+  const want = Math.abs(e.vxs) > 12 ? (e.vxs < 0 ? 1 : 0) : (P.x < e.x ? 1 : 0); if (e.fc === undefined) e.fc = want; const tsx = fz ? 1 : turnScale(e, want, dtv);
+  const ph = (t * (T.big ? 6 : 8.5) + e.seed) * Math.PI / 2, f = fz ? 0 : Math.floor(t * (T.big ? 6 : 8) + e.seed) % 4;
+  const s = ESPR[e.type][f][e.fc][e.flash > 0 ? 1 : fz ? 2 : 0];
   const bx = P2(e.x), by = P2(e.y) + Math.round(e.r / PX);
-  shadowP(bx, by, T.fly ? s.width - 6 : s.width - 2);
+  // altura: saltos, rebote al andar y vuelo
+  let lift = 0, sx = 1, sy = 1;
+  if (T.fly) { lift = (T.big ? 6 : 4) + Math.round(Math.sin(t * 4 + e.seed) * 1.5); sy = 1 + 0.04 * Math.sin(t * 8 + e.seed); sx = 1 - 0.03 * Math.sin(t * 8 + e.seed); }
+  else if (moving) {
+    if (T.hop) { const hp = Math.abs(Math.sin(t * 6 + e.seed)); lift = Math.round(hp * 7); sy = hp < 0.18 ? 0.84 : 1 + 0.12 * hp; sx = hp < 0.18 ? 1.14 : 1 - 0.06 * hp; }
+    else if (T.bomb) { const hp = Math.abs(Math.sin(t * 15 + e.seed)); lift = Math.round(hp * 3); sy = 1 - 0.08 * (1 - hp); sx = 1 + 0.08 * (1 - hp); }
+    else { const st = Math.sin(ph * 2); lift = Math.round(Math.max(0, st) * (T.big ? 1.5 : 2)); sy = 1 + (T.big ? 0.03 : 0.06) * st; sx = 1 - (T.big ? 0.02 : 0.04) * st; }
+  } else if (!fz) { const br = Math.sin(t * 2.6 + e.seed); sy = 1 + 0.025 * br; sx = 1 - 0.015 * br; }
+  // aparición: surge del suelo
+  const age = t - e.bornT;
+  if (age < 0.3 && !T.big) { const k = age / 0.3; sy *= 0.2 + 0.8 * k; sx *= 1.25 - 0.25 * k; if (age < 0.05) for (let i = 0; i < 4; i++) parts.push({ x:e.x + rand(-10, 10), y:e.y + e.r * 0.5, vx:rand(-40, 40), vy:rand(-30, 0), t:0.35, c:'#8a8fa6' }); }
+  // golpe: se aplasta un instante
+  if (e.flash > 0) { sx *= 1.12; sy *= 0.88; }
+  const lean = fz ? 0 : Math.max(-3, Math.min(3, e.vxs / 45)) * (T.big ? 0.6 : 1);
+  shadowE(bx, by, T.fly ? s.width - 6 : s.width - 2, Math.max(0.35, 1 - lift / 14));
   if (e.slow > 0 || fz) { b.fillStyle = fz ? '#5ff0ff' : '#9fd6ff'; b.fillRect(bx - (s.width >> 1) + 2, by + 1, s.width - 4, 1); }
-  const moving = e.spm !== 0 && !fz;
-  let hop = 0;
-  if (moving && !T.fly) hop = T.hop ? Math.round(Math.abs(Math.sin(t * 11 + e.seed)) * 3) : T.bomb ? Math.round(Math.abs(Math.sin(t * 15 + e.seed)) * 2) : f % 2;
-  const lift = T.fly ? Math.round(Math.sin(t * 4 + e.seed) * 1.5) - (T.rift ? 6 : 4) : -hop;
-  if (hop > 1) { b.fillStyle = 'rgba(0,0,0,.15)'; b.fillRect(bx - 2, by, 4, 1); }
-  const jit = e.st === 'wind' && !fz ? (Math.floor(t * 30) % 2 ? 1 : -1) : 0;
-  const x = bx - (s.width >> 1) + jit, y = by - s.height + 1 + lift;
   if (e.elite) {
-    b.globalAlpha = 0.35 + 0.15 * Math.sin(t * 6 + e.seed); b.fillStyle = '#ffd23f'; pcirc(b, bx, by - (s.height >> 1) + lift, (s.width >> 1) + 3); b.globalAlpha = 1;
+    const yy = by - Math.round(s.height * sy) - lift;
+    b.globalAlpha = 0.35 + 0.15 * Math.sin(t * 6 + e.seed); b.fillStyle = '#ffd23f'; pcirc(b, bx, by - (s.height >> 1) - lift, (s.width >> 1) + 3); b.globalAlpha = 1;
     b.fillStyle = '#ffd23f'; pring(b, bx, by, (s.width >> 1) + 1, 1, 0.4);
-    b.fillStyle = OUT; b.fillRect(bx - 4, y - 5, 9, 4); b.fillStyle = '#ffd23f'; b.fillRect(bx - 3, y - 4, 7, 2); b.fillRect(bx - 3, y - 5, 1, 1); b.fillRect(bx, y - 6, 1, 2); b.fillRect(bx + 3, y - 5, 1, 1);
+    b.fillStyle = OUT; b.fillRect(bx - 4, yy - 5, 9, 4); b.fillStyle = '#ffd23f'; b.fillRect(bx - 3, yy - 4, 7, 2); b.fillRect(bx - 3, yy - 5, 1, 1); b.fillRect(bx, yy - 6, 1, 2); b.fillRect(bx + 3, yy - 5, 1, 1);
   }
-  if (moving && !T.fly && !T.big) {
-    const lean = P.x > e.x ? 1 : -1, cut = s.height >> 1;
-    b.drawImage(s, 0, 0, s.width, cut, x + lean, y, s.width, cut);
-    b.drawImage(s, 0, cut, s.width, s.height - cut, x, y + cut, s.width, s.height - cut);
-  } else if (T.big && moving && f % 2) b.drawImage(s, x - 1, y + 1, s.width + 2, s.height - 1);
-  else b.drawImage(s, x, y);
+  const jit = e.st === 'wind' && !fz ? (Math.floor(t * 30) % 2 ? 1 : -1) : 0;
+  drawBody(s, bx + jit, by, sx * tsx, sy, lean, lift);
   if (e.root > 0) { b.fillStyle = '#7ac060'; for (let i = -1; i <= 1; i++) b.fillRect(bx + i * 3, by - 4 - (i === 0 ? 2 : 0), 1, 5); b.fillStyle = '#3a8a2a'; b.fillRect(bx - 4, by, 9, 1); }
   if (T.mini) {
     const w = 22, x = bx - 11, y = by - s.height - 4;
@@ -4832,6 +4961,8 @@ function render(ts) {
 
     const vx0 = camX - BW * PX / 2 - 100, vx1 = camX + BW * PX / 2 + 100, vy0 = camY - VH / 2 - 100, vy1 = camY + VH / 2 + 140;
     for (const e of enemies) if (e.x > vx0 && e.x < vx1 && e.y > vy0 && e.y < vy1) depth.push({ y:P2(e.y) + Math.round(e.r / PX), f:() => drawEnemy(e, t) });
+    corpses = corpses.filter(c => !c.done);
+    for (const c of corpses) if (c.x > vx0 && c.x < vx1 && c.y > vy0 && c.y < vy1) depth.push({ y:P2(c.y) + Math.round(c.r / PX) - 1, f:() => drawCorpse(c, t) });
     for (const a of allyList()) depth.push({ y:P2(a.y) + 6, f:() => drawAlly(a, t) });
     const heroBase = P2(P.y) + 6;
     const drawHero = (alpha) => {
@@ -4839,15 +4970,16 @@ function render(ts) {
       if (P.deathT !== undefined && (state === 'dying' || P.deathT < 2.4)) { if (alpha === 1) drawDyingHero(bx, by, t); return; }
       const [dir, fl] = RING[P.ring];
       const fr = P.moving ? Math.floor(P.walkT * 8) % 4 : 4 + (Math.floor(t * 1.6) % 2);
-      if (alpha === 1) shadowP(bx, by, fr % 2 && P.moving ? 12 : 15);
+      const st = P.moving ? Math.sin(P.walkT * 8 * Math.PI / 2 * 2) : 0, hl = P.moving ? Math.round(Math.max(0, st) * 1.5) : 0;
+      if (alpha === 1) shadowE(bx, by, 15, 1 - hl / 10);
       if (P.inv > 0 && !P.dead && Math.floor(t * 20) % 2) return;
       if (P.dead) alpha *= 0.4;
-      const s = heroSprite(heroKey, dir, fr, fl), x = bx - (s.width >> 1), y = by - FY - 1;
-      const lean = P.moving && Math.abs(P.fx) > 0.35 ? Math.sign(P.fx) : 0;
+      const s = heroSprite(heroKey, dir, fr, fl);
+      let hsx = 1, hsy = 1;
+      if (P.sq > 0) { hsx = 1.1; hsy = 0.9; } else if (P.moving) { hsx = 1 - 0.035 * st; hsy = 1 + 0.05 * st; } else { const br = Math.sin(t * 2.4); hsx = 1 - 0.012 * br; hsy = 1 + 0.025 * br; }
+      const lean = P.moving ? P.fx * 2.2 : 0;
       b.globalAlpha = alpha;
-      if (P.sq > 0) b.drawImage(s, x - 1, y + 2, s.width + 2, s.height - 2);
-      else if (lean) { const cut = 15; b.drawImage(s, 0, 0, s.width, cut, x + lean, y, s.width, cut); b.drawImage(s, 0, cut, s.width, s.height - cut, x, y + cut, s.width, s.height - cut); }
-      else b.drawImage(s, x, y);
+      drawBody(s, bx, by - FY - 1 + s.height - 1, hsx, hsy, lean, hl);
       b.globalAlpha = 1;
     };
     depth.push({ y:heroBase, f:() => {
@@ -5978,7 +6110,7 @@ function guestSnap(s) {
     if (T.rift) { o.call = s.cl ? { txt:s.cl, t:1 } : null; o.lvl = s.bl || 0; }
     o._s = o.slow; o._f = o.frozen; o._r = o.root;
   }
-  for (const [id, o] of emap) if (!seen.has(id)) emap.delete(id);
+  for (const [id, o] of emap) if (!seen.has(id)) { if (!o.dead && o.hp <= o.maxHp * 0.35 && Math.abs(o.x - P.x) < 700 && Math.abs(o.y - P.y) < 500) addCorpse(o); emap.delete(id); }
   enemies = [...emap.values()];
   // objetos del suelo
   const sg = new Set(), Gs = s.g;
@@ -6037,7 +6169,7 @@ function guestHit(e, amt, kx, ky, quiet) {
   e.hp -= amt; e.flash = 0.08;
   if (!quiet && texts.length < 80) texts.push({ x:e.x + rand(-6, 6), y:e.y - e.r - 10, t:0.6, v:Math.round(amt) });
   NET.gout.d.push([e.id, Math.round(amt * 10) / 10, Math.round(kx), Math.round(ky)]);
-  if (e.hp <= 0) { e.dead = true; e.predT = 0.6; for (let i = 0; i < 6; i++) parts.push({ x:e.x, y:e.y, vx:rand(-140, 140), vy:rand(-140, 140), t:rand(0.3, 0.6), c:ETYPES[e.type].color }); }
+  if (e.hp <= 0) { addCorpse(e); e.dead = true; e.predT = 0.6; for (let i = 0; i < 6; i++) parts.push({ x:e.x, y:e.y, vx:rand(-140, 140), vy:rand(-140, 140), t:rand(0.3, 0.6), c:ETYPES[e.type].color }); }
 }
 function updateGuest(dt) {
   time += dt;
@@ -6270,10 +6402,12 @@ function drawAlly(a, t) {
   const bx = P2(a.x), by = P2(a.y) + 6, [dir, fl] = RING[a.ring || 2];
   if (a.fx && a.fx.bo && !a.dead) drawBoostAura(a.x, a.y, Object.keys(a.fx.bo), t);
   const fr = a.moving && !a.dead ? Math.floor(a.walkT * 8) % 4 : 4 + (Math.floor(t * 1.6) % 2);
-  shadowP(bx, by, 14);
+  animState(a, t);
+  const st = a.moving && !a.dead ? Math.sin((a.walkT || 0) * 8 * Math.PI) : 0, hl = Math.round(Math.max(0, st) * 1.5);
+  shadowE(bx, by, 14, 1 - hl / 10);
   const s = heroSprite(a.hero, dir, fr, fl);
   b.globalAlpha = a.dead ? 0.4 : 1;
-  b.drawImage(s, bx - (s.width >> 1), by - FY - 1);
+  drawBody(s, bx, by - FY - 1 + s.height - 1, a.moving ? 1 - 0.035 * st : 1, a.moving ? 1 + 0.05 * st : 1 + 0.025 * Math.sin(t * 2.4 + 1), a.moving ? Math.max(-2.2, Math.min(2.2, (a.vxs || 0) / 70)) : 0, hl);
   b.globalAlpha = 1;
   if (a.dead) drawFallen(a.x, a.y, a.rv || 0, t);
   b.fillStyle = OUT; b.fillRect(bx - 8, by + 3, 16, 3);
