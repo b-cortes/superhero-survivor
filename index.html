@@ -1871,12 +1871,20 @@ function pickType() {
 function spawnEnemy(type, x, y) {
   type = type || pickType(); const T = ETYPES[type];
   if (x === undefined) { const C = spawnCenter(), a = Math.random() * TAU, d = Math.hypot(VW * 1.35, VH) / 2 + 50; x = C.x + Math.cos(a) * d; y = C.y + Math.sin(a) * d; }
-  const scale = T.rift ? 1 + time / 300 : T.mini ? 1 + time / 150 : type === 'jefe' ? 1 + time / 300 : 1 + time / 100;
+  // amenaza: cada 2 minutos los enemigos son más duros (crecimiento suave y compuesto)
+  const f = time / 120;
+  const scale = T.rift ? Math.pow(1.18, f) : T.mini ? Math.pow(1.24, f) : type === 'jefe' ? Math.pow(1.22, f) : Math.pow(1.4, f);
   const hp = T.hp * scale * (isHost() && !T.static ? 1 + (T.big ? 0.5 : 0.25) * (coopN() - 1) : 1);
-  const e = { id:++eidN, type, x, y, hp, maxHp:hp, r:T.r, speed:T.speed * (T.big ? 1 : rand(0.9, 1.1)), dmg:T.dmg * (1 + time / 400), xp:T.xp, kx:0, ky:0,
+  const e = { id:++eidN, type, x, y, hp, maxHp:hp, r:T.r, speed:T.speed * (T.big ? 1 : rand(0.9, 1.1)) * (1 + Math.min(0.25, 0.03 * Math.floor(f))), dmg:T.dmg * enemyDmgMul(time), xp:T.xp, kx:0, ky:0,
     flash:0, slow:0, frozen:0, orbCd:0, dead:false, ring:2, target:2, turnT:0, walkT:0, seed:Math.random() * 10, side:Math.random() < 0.5 ? 1 : -1, atk:2, step:0, st:'chase', mx:0, my:0, spm:1 };
+  // a partir de la amenaza 3 aparecen enemigos de élite (más vida, más daño, mejor botín)
+  if (!T.big && !T.static && !T.mini && !T.rift && f >= 2 && type !== 'sombra' && Math.random() < Math.min(0.3, 0.05 + 0.03 * (f - 2))) {
+    e.elite = true; e.hp *= 2.6; e.maxHp = e.hp; e.dmg *= 1.3; e.r *= 1.15; e.xp = Math.max(1, e.xp) * 3;
+  }
   enemies.push(e); return e;
 }
+function enemyDmgMul(t) { return Math.pow(1.12, t / 120); }
+const threatLv = t => 1 + Math.floor(t / 120);
 function boom(x, y, r, deco) {
   booms.push({ x, y, r, t:0.45, max:0.45 });
   if (isHost()) netQueue(['b', Math.round(x), Math.round(y), Math.round(r), deco ? 1 : 0]);
@@ -1926,6 +1934,7 @@ function kill(e) {
     boom(e.x, e.y, 110);
   } else {
     if (gems.length < 450) gems.push({ x:e.x, y:e.y, v:e.xp, kind:'xp' });
+    if (e.elite) { drop(e.x, e.y, 'coin', 2 + Math.floor(time / 120)); for (let i = 0; i < 10; i++) parts.push({ x:e.x, y:e.y - 10, vx:rand(-150, 150), vy:rand(-180, 30), t:0.6, c:'#ffd23f' }); }
     else gems[(Math.random() * gems.length) | 0].v += e.xp;
     const cr = e.type === 'bruto' ? 0.25 : 0.06;
     if (Math.random() < cr) drop(e.x, e.y, 'coin', e.type === 'bruto' ? 3 : 1);
@@ -2414,7 +2423,7 @@ function update(dt) {
 
   if (mode === 'city') {
     if (enemies.length < 320) {
-      spawnAcc += (1 + time / 25) * dt * (1 + 0.55 * (coopN() - 1));
+      spawnAcc += Math.min(14, 1.2 + time / 40) * dt * (1 + 0.55 * (coopN() - 1));
       while (spawnAcc >= 1) { spawnEnemy(); spawnAcc--; }
     }
     if (time >= nextBoss) { spawnEnemy('jefe'); nextBoss += BOSS_EVERY; sayAll('¡Llega el Doctor Óxido!'); shake = 12; }
@@ -2539,11 +2548,12 @@ function update(dt) {
   for (const t of texts) { t.t -= dt; t.y -= 30 * dt; } texts = texts.filter(t => t.t > 0);
   if (banner) { banner.t -= dt; if (banner.t <= 0) banner = null; }
   enemies = enemies.filter(e => !e.dead);
-  camX = P.x; camY = P.y;
+  camFollow();
   updateAmbient(dt, true);
 
   if (P.hp <= 0 || P.dead) { if (isHost()) hostCoopDeath(); else return endGame(false); }
   if (state !== 'play') return;
+  if (threatLv(time) > (run.threat || 1)) { run.threat = threatLv(time); sayAll('¡Amenaza ' + run.threat + '! Los enemigos se hacen más fuertes' + (run.threat === 2 ? '' : run.threat === 3 ? ' y llegan las élites' : ''), 2.8, '#ff9f1c'); }
   // sin límite de tiempo: hitos cada 5 minutos y aviso de récord
   if (time >= run.nextMile) { run.nextMile += 300; run.tickets += 1; say('¡' + fmt(time) + ' resistidos! +1 ticket', 3, '#5cff8a'); }
   if (!run.recordSaid && run.prevBest > 0 && time > run.prevBest) { run.recordSaid = true; say('¡NUEVO RÉCORD!', 3, '#ffd23f'); }
@@ -3131,8 +3141,10 @@ addEventListener('keydown', e => {
   if ((state === 'levelup' || (P && P.choosing)) && /^Digit[1-3]$/.test(e.code)) choose(+e.code.slice(5) - 1);
 });
 addEventListener('keyup', e => { keys[e.code] = false; });
+addEventListener('keydown', e => { if (P && P.dead && isCoop() && state === 'play') { if (['ArrowLeft', 'KeyA', 'KeyQ'].includes(e.code)) specCycle(-1); if (['ArrowRight', 'KeyD', 'KeyE'].includes(e.code)) specCycle(1); } });
 addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
 cv.addEventListener('pointerdown', e => {
+  if (P && P.dead && isCoop() && state === 'play') { specCycle(1); return; }
   if (state !== 'play' || joy.active) return;
   joy.active = true; joy.id = e.pointerId; joy.ox = joy.x = e.clientX; joy.oy = joy.y = e.clientY;
   try { cv.setPointerCapture(e.pointerId); } catch (err) {}
@@ -3204,6 +3216,11 @@ function drawEnemy(e, t) {
   if (hop > 1) { b.fillStyle = 'rgba(0,0,0,.15)'; b.fillRect(bx - 2, by, 4, 1); }
   const jit = e.st === 'wind' && !fz ? (Math.floor(t * 30) % 2 ? 1 : -1) : 0;
   const x = bx - (s.width >> 1) + jit, y = by - s.height + 1 + lift;
+  if (e.elite) {
+    b.globalAlpha = 0.35 + 0.15 * Math.sin(t * 6 + e.seed); b.fillStyle = '#ffd23f'; pcirc(b, bx, by - (s.height >> 1) + lift, (s.width >> 1) + 3); b.globalAlpha = 1;
+    b.fillStyle = '#ffd23f'; pring(b, bx, by, (s.width >> 1) + 1, 1, 0.4);
+    b.fillStyle = OUT; b.fillRect(bx - 4, y - 5, 9, 4); b.fillStyle = '#ffd23f'; b.fillRect(bx - 3, y - 4, 7, 2); b.fillRect(bx - 3, y - 5, 1, 1); b.fillRect(bx, y - 6, 1, 2); b.fillRect(bx + 3, y - 5, 1, 1);
+  }
   if (moving && !T.fly && !T.big) {
     const lean = P.x > e.x ? 1 : -1, cut = s.height >> 1;
     b.drawImage(s, 0, 0, s.width, cut, x + lean, y, s.width, cut);
@@ -3577,6 +3594,7 @@ function render(ts) {
     };
     depth.push({ y:heroBase, f:() => {
       drawHero(1);
+      if (P.dead && isCoop()) drawFallen(P.x, P.y, P.reviveT || 0, t);
       const bx = P2(P.x);
       b.fillStyle = OUT; b.fillRect(bx - 8, heroBase + 3, 16, 3);
       b.fillStyle = P.hp / P.maxHp > 0.35 ? '#5cffb0' : '#ff4d6d';
@@ -3656,6 +3674,7 @@ function render(ts) {
     }
     drawIndicators(sx, sy, t);
     drawHud(t);
+    drawSpecHud();
     drawCoopPause(t);
   }
   if (trans) {
@@ -3687,16 +3706,18 @@ function drawEmbers(ts) {
 function drawIndicators(sx, sy, t) {
   drawAllyNames(sx, sy);
   const list = [];
-  for (const a of allyList()) { const px = sx(a.x, a.y), py = sy(a.y); if (px < 30 || px > VW - 30 || py < 70 || py > VH - 30) list.push([a.x, a.y, '#7ec8ff', a.name]); }
+  for (const a of allyList()) { const px = sx(a.x, a.y), py = sy(a.y), off = px < 30 || px > VW - 30 || py < 70 || py > VH - 30; if (a.dead) { if (off) list.push([a.x, a.y, Math.floor(t * 4) % 2 ? '#ff4d6d' : '#ffffff', '¡AYUDA! ' + a.name + ' ' + Math.round(Math.hypot(a.x - P.x, a.y - P.y) / 10) + 'm', true]); } else if (off) list.push([a.x, a.y, '#7ec8ff', a.name]); }
+  if (P && P.dead && specTarget()) list.push([P.x, P.y, '#ff4d6d', 'TU CUERPO']);
   if (mode === 'city') {
     for (const o of outposts) list.push([o.x, o.y - 30, BOOSTS[o.type].color, 'PUESTO']);
     for (const c of bigChests) list.push([c.x, c.y - 30, '#ffd23f', 'COFRE']);
     if (rift) list.push([rift.x, rift.y - 30, '#c9a8ff', 'GRIETA ' + Math.ceil(rift.life)]);
     for (const e of enemies) if (ETYPES[e.type].mini || e.type === 'jefe') list.push([e.x, e.y, '#ff9f1c', 'JEFE']);
   } else if (exitPortal) list.push([exitPortal.x, exitPortal.y - 30, '#c9a8ff', 'SALIDA']);
-  ctx.font = '8px "Press Start 2P", monospace'; ctx.textBaseline = 'middle';
-  for (const [x, y, c, label] of list) {
+  ctx.textBaseline = 'middle';
+  for (const [x, y, c, label, sos] of list) {
     const px = sx(x, y), py = sy(y), m = 40;
+    ctx.font = (sos ? 11 : 8) + 'px "Press Start 2P", monospace';
     if (px > m && px < VW - m && py > 70 && py < VH - m) {
       if (label !== 'JEFE') { ctx.textAlign = 'center'; ctx.lineWidth = 4; ctx.strokeStyle = OUT; ctx.strokeText(label, px, py - 40); ctx.fillStyle = c; ctx.fillText(label, px, py - 40); }
       continue;
@@ -3706,6 +3727,7 @@ function drawIndicators(sx, sy, t) {
     const ix = Math.round((cx + Math.cos(a) * k) / 3) * 3, iy = Math.round((cy + Math.sin(a) * k) / 3) * 3;
     ctx.save(); ctx.translate(ix, iy); ctx.rotate(a);
     const bob = Math.floor(t * 4) % 2 ? 3 : 0;
+    if (sos) ctx.scale(1.7, 1.7);
     ctx.fillStyle = OUT; ctx.fillRect(-3 + bob, -12, 18, 24);
     ctx.fillStyle = c;
     for (let i = 0; i < 4; i++) ctx.fillRect(bob + i * 3, -9 + i * 3, 3, 18 - i * 6);
@@ -3728,8 +3750,10 @@ function drawHud(t) {
   ctx.imageSmoothingEnabled = false;
   ctx.drawImage(COIN, 14, 60, 26, 26); ctx.fillStyle = '#ffd23f'; txt(String(run.coins), 46, 69);
   ctx.drawImage(TICKET, 12, 92, 32, 20); ctx.fillStyle = '#ff8a3d'; txt(String(run.tickets), 50, 98);
+  { const tl = threatLv(time), ta = ctx.textAlign; ctx.textAlign = 'left'; ctx.font = font(8); ctx.fillStyle = tl >= 6 ? '#ff4d6d' : tl >= 3 ? '#ff9f1c' : '#ffd23f'; txt('AMENAZA ' + tl, 16, 124); ctx.textAlign = ta; }
   ctx.textAlign = 'center'; ctx.fillStyle = '#eef1ff'; ctx.font = font(20); txt(fmt(time), VW / 2, 22);
   ctx.fillStyle = mode === 'rift' ? '#c9a8ff' : '#c9cff0'; ctx.font = font(8); txt(mode === 'rift' ? 'OTRO UNIVERSO' : !run || !run.prevBest ? 'SIN LÍMITE' : time > run.prevBest ? '¡NUEVO RÉCORD!' : 'RÉCORD ' + fmt(run.prevBest), VW / 2, 50);
+
   const big = enemies.find(e => ETYPES[e.type].rift) || enemies.find(e => e.type === 'jefe');
   if (big) {
     const isRift = !!ETYPES[big.type].rift;
@@ -4449,7 +4473,10 @@ function netIn(from, m, via, bi) {
     if (m.k === 'pong') { p.rtt = performance.now() - m.ts; return; }
     if (m.k === 'bye') { dropPeer(p, p.name + ' ha salido'); return; }
     if (m.k === 'hero') { p.hero = HEROES[m.hero] ? m.hero : p.hero; lobbyBroadcast(); lobbyRender(); return; }
-    if (m.k === 'i') { p.gotInput = true; p.tx = m.x; p.ty = m.y; if (Math.hypot(p.tx - p.x, p.ty - p.y) > 300) { p.x = p.tx; p.y = p.ty; } p.ring = m.r; p.moving = !!m.mv; p.hp = m.hp; p.maxHp = m.mh; p.dead = !!m.dd; p.fx = m.fx || 0; p.fy = m.fy || 0; p.choosing = !!m.ch; return; }
+    if (m.k === 'i') {
+      if (m.dd && !p.dead && NET.inGame) { const txt = '¡' + p.name + ' ha caído! Ve a revivirle'; if (!P.dead) say(txt, 3, '#ff4d6d'); for (const q of NET.peers.values()) if (q !== p) (q.q || (q.q = [])).push(['s', txt, 3, '#ff4d6d']); }
+      p.cx = m.cx; p.cy = m.cy; p.rv = m.rv || 0;
+      p.gotInput = true; p.tx = m.x; p.ty = m.y; if (Math.hypot(p.tx - p.x, p.ty - p.y) > 300) { p.x = p.tx; p.y = p.ty; } p.ring = m.r; p.moving = !!m.mv; p.hp = m.hp; p.maxHp = m.mh; p.dead = !!m.dd; p.fx = m.fx || 0; p.fy = m.fy || 0; p.choosing = !!m.ch; return; }
     if (m.k === 'ev') { hostApplyGuestEvents(p, m); return; }
     if (m.k === 'fx') { p.fxs = m.f; return; }
   } else {
@@ -4524,7 +4551,7 @@ function netTick(dt) {
     NET.sendT -= dt;
     if (NET.sendT <= 0 && P && h) {
       NET.sendT = h.link === 'direct' ? 1 / 15 : 1 / 7;
-      sendTo(h, { k:'i', x:Math.round(P.x), y:Math.round(P.y), r:P.ring, mv:P.moving ? 1 : 0, hp:Math.round(P.hp), mh:Math.round(P.maxHp), dd:P.dead ? 1 : 0, fx:+P.fx.toFixed(2), fy:+P.fy.toFixed(2), ch:P.choosing ? 1 : 0 }, false);
+      sendTo(h, { k:'i', x:Math.round(P.x), y:Math.round(P.y), r:P.ring, mv:P.moving ? 1 : 0, hp:Math.round(P.hp), mh:Math.round(P.maxHp), dd:P.dead ? 1 : 0, fx:+P.fx.toFixed(2), fy:+P.fy.toFixed(2), ch:P.choosing ? 1 : 0, cx:Math.round(camX), cy:Math.round(camY), rv:+(P.reviveT || 0).toFixed(1) }, false);
     }
     for (const o of others.values()) fxAdvance(o.fx, dt);
     NET.fxT = (NET.fxT || 0) - dt;
@@ -4554,10 +4581,10 @@ function spawnCenter() { const l = alivePlayers(); return l.length ? pick(l) : P
 const coopN = () => isHost() ? 1 + NET.peers.size : 1;
 function netQueue(ev) { if (isHost()) for (const p of NET.peers.values()) (p.q || (p.q = [])).push(ev); }
 function buildSnap(p) {
-  const R2 = (p.link === 'direct' ? 1300 : 1000) ** 2, cx = p.x, cy = p.y;
+  const R2 = (p.link === 'direct' ? 1300 : 1000) ** 2, cx = p.cx !== undefined ? p.cx : p.x, cy = p.cy !== undefined ? p.cy : p.y;
   const nr = (x, y, r2) => (x - cx) ** 2 + (y - cy) ** 2 < r2;
-  const pl = [[NET.id, Math.round(P.x), Math.round(P.y), Math.round(P.hp), Math.round(P.maxHp), P.ring, P.moving ? 1 : 0, P.dead ? 1 : 0, HKEYS.indexOf(heroKey), NET.name]];
-  for (const q of NET.peers.values()) pl.push([q.id, Math.round(q.x), Math.round(q.y), Math.round(q.hp), Math.round(q.maxHp), q.ring, q.moving ? 1 : 0, q.dead ? 1 : 0, HKEYS.indexOf(q.hero), q.name]);
+  const pl = [[NET.id, Math.round(P.x), Math.round(P.y), Math.round(P.hp), Math.round(P.maxHp), P.ring, P.moving ? 1 : 0, P.dead ? 1 : 0, HKEYS.indexOf(heroKey), NET.name, +(P.reviveT || 0).toFixed(1)]];
+  for (const q of NET.peers.values()) pl.push([q.id, Math.round(q.x), Math.round(q.y), Math.round(q.hp), Math.round(q.maxHp), q.ring, q.moving ? 1 : 0, q.dead ? 1 : 0, HKEYS.indexOf(q.hero), q.name, q.rv || 0]);
   const e = []; let ne = 0;
   const maxE = p.link === 'direct' ? 260 : 130;
   for (const o of enemies) {
@@ -4565,7 +4592,7 @@ function buildSnap(p) {
     const T = ETYPES[o.type];
     if (!T.big && !nr(o.x, o.y, R2)) continue;
     if (++ne > maxE && !T.big) continue;
-    const fl = (o.flash > 0 ? 1 : 0) | (o.frozen > 0 ? 2 : 0) | (o.slow > 0 ? 4 : 0) | ((o.st === 'wind' || o.tele || o.stomp > 0 || (o.qN > 0 && o.qT > 0.4)) ? 8 : 0) | (o.spm !== 0 ? 16 : 0) | (o.root > 0 ? 32 : 0);
+    const fl = (o.flash > 0 ? 1 : 0) | (o.frozen > 0 ? 2 : 0) | (o.slow > 0 ? 4 : 0) | ((o.st === 'wind' || o.tele || o.stomp > 0 || (o.qN > 0 && o.qT > 0.4)) ? 8 : 0) | (o.spm !== 0 ? 16 : 0) | (o.root > 0 ? 32 : 0) | (o.elite ? 64 : 0);
     e.push(o.id, ETK.indexOf(o.type), Math.round(o.x), Math.round(o.y), Math.ceil(o.hp), Math.round(o.maxHp), fl, o.ring | 0, Math.round(o.jumpH || 0));
   }
   const g = []; let ng = 0;
@@ -4603,7 +4630,7 @@ function hostTeleportAll(cx, cy) {
   for (const p of NET.peers.values()) { i++; const x = cx + (i % 2 ? 1 : -1) * 34 * Math.ceil(i / 2), y = cy + 10; p.x = p.tx = x; p.y = p.ty = y; sendTo(p, { k:'ev', d:[['tp', x, y, mode]] }); }
 }
 function hostCoopDeath() {
-  if (!P.dead) { P.dead = true; P.hp = 0; P.reviveT = 0; say('¡Has caído! Un aliado puede revivirte quedándose a tu lado', 3, '#ff4d6d'); }
+  if (!P.dead) { P.dead = true; P.hp = 0; P.reviveT = 0; spec.id = null; say('¡Has caído! Mira a tus compañeros mientras te reviven', 3, '#ff4d6d'); netQueue(['s', '¡' + NET.name + ' ha caído! Ve a revivirle', 3, '#ff4d6d']); }
   const anyAlive = [...NET.peers.values()].some(p => !p.dead);
   if (!anyAlive) { const m = { k:'end', why:'Todo el equipo ha caído.' }; sendAll(m); sendAll(m); coopEnd('Todo el equipo ha caído.'); }
 }
@@ -4646,7 +4673,7 @@ function guestSnap(s) {
     seenP.add(a[0]);
     let o = others.get(a[0]);
     if (!o) { o = { id:a[0], x:a[1], y:a[2], walkT:0 }; others.set(a[0], o); }
-    o.tx = a[1]; o.ty = a[2]; o.hp = a[3]; o.maxHp = a[4]; o.ring = a[5]; o.moving = !!a[6]; o.dead = !!a[7]; o.hero = HKEYS[a[8]] || 'escarcha'; o.name = a[9];
+    o.tx = a[1]; o.ty = a[2]; o.hp = a[3]; o.maxHp = a[4]; o.ring = a[5]; o.moving = !!a[6]; o.dead = !!a[7]; o.hero = HKEYS[a[8]] || 'escarcha'; o.name = a[9]; o.rv = a[10] || 0;
     if (Math.hypot(o.tx - o.x, o.ty - o.y) > 400) { o.x = o.tx; o.y = o.ty; }
   }
   for (const k of [...others.keys()]) if (!seenP.has(k)) others.delete(k);
@@ -4666,9 +4693,9 @@ function guestSnap(s) {
     const fl = E[i + 6];
     if (fl & 1) o.flash = Math.max(o.flash, 0.08);
     o.frozen = fl & 2 ? Math.max(o.frozen, 0.15) : 0; o.slow = fl & 4 ? Math.max(o.slow, 0.15) : 0; o.root = fl & 32 ? 0.15 : 0;
-    o.st = fl & 8 ? 'wind' : 'chase'; o.spm = fl & 16 ? 1 : 0;
+    o.st = fl & 8 ? 'wind' : 'chase'; o.spm = fl & 16 ? 1 : 0; o.elite = !!(fl & 64); if (o.elite && !o._er) { o._er = 1; o.r *= 1.15; }
     o.ring = E[i + 7]; o.jumpH = E[i + 8];
-    o.dmg = T.dmg * (1 + time / 400);
+    o.dmg = T.dmg * enemyDmgMul(time) * (o.elite ? 1.3 : 1);
     if (T.rift) o.call = s.cl ? { txt:s.cl, t:1 } : null;
     o._s = o.slow; o._f = o.frozen; o._r = o.root;
   }
@@ -4805,12 +4832,12 @@ function updateGuest(dt) {
   }
   warnings = warnings.filter(w => !w.fired);
   reviveTick(dt, [...others.values()]);
-  if (P.hp <= 0 && !P.dead) { P.dead = true; P.hp = 0; P.reviveT = 0; say('¡Has caído! Un aliado puede revivirte quedándose a tu lado', 3, '#ff4d6d'); }
+  if (P.hp <= 0 && !P.dead) { P.dead = true; P.hp = 0; P.reviveT = 0; spec.id = null; say('¡Has caído! Mira a tus compañeros mientras te reviven', 3, '#ff4d6d'); }
   for (const bo of bolts) bo.t -= dt; bolts = bolts.filter(bo => bo.t > 0);
   for (const t of texts) { t.t -= dt; t.y -= 30 * dt; } texts = texts.filter(t => t.t > 0);
   if (banner) { banner.t -= dt; if (banner.t <= 0) banner = null; }
   enemies = enemies.filter(e => !e.dead);
-  camX = P.x; camY = P.y;
+  camFollow();
   updateAmbient(dt, true);
 }
 function coopEnd(why) {
@@ -4919,8 +4946,44 @@ function drawBoostAura(x, y, keys, t) {
   if (keys.includes('escudo')) { b.fillStyle = Math.floor(t * 8) % 2 ? '#ffd23f' : '#fff3a3'; pring(b, bx, by - 16, 13); }
 }
 
+/* ---------- espectar mientras estás caído ---------- */
+const spec = { id:null };
+function specList() { return allyList().filter(a => !a.dead); }
+function specTarget() {
+  if (!isCoop() || !P || !P.dead) return null;
+  if (spec.id === 'me') return null;
+  const l = specList(); if (!l.length) return null;
+  return l.find(a => a.id === spec.id) || l[0];
+}
+function specCycle(d) {
+  if (!isCoop() || !P || !P.dead) return;
+  const ids = specList().map(a => a.id).concat(['me']);
+  const cur = specTarget(), i = ids.indexOf(cur ? cur.id : 'me');
+  spec.id = ids[(i + d + ids.length) % ids.length];
+}
+function camFollow() { const st = specTarget(); if (st) { camX = st.x; camY = st.y; } else { camX = P.x; camY = P.y; } }
+function drawSpecHud() {
+  if (!isCoop() || !P || !P.dead) return;
+  const st = specTarget(), txtS = st ? 'VIENDO A ' + st.name.toUpperCase() : 'VIENDO TU POSICIÓN';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineWidth = 4; ctx.strokeStyle = OUT;
+  ctx.fillStyle = 'rgba(11,14,28,.7)'; ctx.fillRect(VW / 2 - 190, VH - 98, 380, 44);
+  ctx.font = '10px "Press Start 2P", monospace'; ctx.strokeText(txtS, VW / 2, VH - 84); ctx.fillStyle = '#7ec8ff'; ctx.fillText(txtS, VW / 2, VH - 84);
+  ctx.font = '7px "Press Start 2P", monospace'; const h = '◀ ▶ / TOCA LA PANTALLA PARA CAMBIAR'; ctx.strokeText(h, VW / 2, VH - 66); ctx.fillStyle = '#c9cff0'; ctx.fillText(h, VW / 2, VH - 66);
+}
+// baliza bien visible donde ha caído alguien (tú o un compañero)
+function drawFallen(x, y, rv, t) {
+  const bx = P2(x), by = P2(y) + 6, pulse = Math.floor(t * 4) % 2;
+  b.globalAlpha = 0.18 + 0.1 * pulse; b.fillStyle = '#ff4d6d'; b.fillRect(bx - 4, by - 70, 9, 70); b.globalAlpha = 0.35; b.fillRect(bx - 1, by - 70, 3, 70); b.globalAlpha = 1;
+  b.fillStyle = '#ff4d6d'; pring(b, bx, by, 14 + pulse * 2, 1, 0.45); b.fillStyle = 'rgba(255,77,109,.5)'; pring(b, bx, by, 18 + pulse * 2, 1, 0.45);
+  if (rv > 0) { b.fillStyle = '#5cffb0'; pring(b, bx, by - 14, 12, Math.min(1, rv / 2.5)); pring(b, bx, by - 14, 11, Math.min(1, rv / 2.5)); }
+  const cy = by - 34 - (Math.floor(t * 3) % 2);
+  b.fillStyle = OUT; b.fillRect(bx - 4, cy - 5, 9, 11); b.fillRect(bx - 6, cy - 2, 13, 5);
+  b.fillStyle = '#ff4d6d'; b.fillRect(bx - 1, cy - 4, 3, 9); b.fillRect(bx - 5, cy - 1, 11, 3);
+  b.fillStyle = '#ffffff'; b.fillRect(bx, cy - 3, 1, 2);
+}
+
 /* ---------- aliados en pantalla ---------- */
-function allyList() { if (!NET || !NET.inGame) return []; return NET.role === 'host' ? [...NET.peers.values()].map(p => ({ id:p.id, x:p.x, y:p.y, hp:p.hp, maxHp:p.maxHp, ring:p.ring, moving:p.moving, dead:p.dead, hero:p.hero, name:p.name, walkT:p.walkT, fx:p.fxs })) : [...others.values()]; }
+function allyList() { if (!NET || !NET.inGame) return []; return NET.role === 'host' ? [...NET.peers.values()].map(p => ({ id:p.id, x:p.x, y:p.y, hp:p.hp, maxHp:p.maxHp, ring:p.ring, moving:p.moving, dead:p.dead, hero:p.hero, name:p.name, walkT:p.walkT, fx:p.fxs, rv:p.rv || 0 })) : [...others.values()]; }
 function drawAlly(a, t) {
   const bx = P2(a.x), by = P2(a.y) + 6, [dir, fl] = RING[a.ring || 2];
   if (a.fx && a.fx.bo && !a.dead) drawBoostAura(a.x, a.y, Object.keys(a.fx.bo), t);
@@ -4930,7 +4993,7 @@ function drawAlly(a, t) {
   b.globalAlpha = a.dead ? 0.4 : 1;
   b.drawImage(s, bx - (s.width >> 1), by - FY - 1);
   b.globalAlpha = 1;
-  if (a.dead) { b.fillStyle = '#ff4d6d'; b.fillRect(bx - 1, by - 22, 3, 9); b.fillRect(bx - 4, by - 19, 9, 3); }
+  if (a.dead) drawFallen(a.x, a.y, a.rv || 0, t);
   b.fillStyle = OUT; b.fillRect(bx - 8, by + 3, 16, 3);
   b.fillStyle = '#4f9cff'; b.fillRect(bx - 7, by + 4, Math.round(14 * Math.max(0, (a.hp || 0) / (a.maxHp || 1))), 1);
 }
@@ -4940,13 +5003,15 @@ function drawAllyNames(sx, sy) {
   for (const a of list) {
     const px = sx(a.x, a.y), py = sy(a.y) - 96;
     if (px < 0 || px > VW || py < 0 || py > VH) continue;
-    ctx.lineWidth = 4; ctx.strokeStyle = OUT; ctx.strokeText(a.name, px, py); ctx.fillStyle = a.dead ? '#ff4d6d' : '#7ec8ff'; ctx.fillText(a.name, px, py);
+    const nm = a.dead ? '¡AYUDA! ' + a.name : a.name;
+    ctx.lineWidth = 4; ctx.strokeStyle = OUT; ctx.strokeText(nm, px, py); ctx.fillStyle = a.dead ? (Math.floor(performance.now() / 250) % 2 ? '#ff4d6d' : '#ffffff') : '#7ec8ff'; ctx.fillText(nm, px, py);
     const bk = a.fx && a.fx.bo ? Object.keys(a.fx.bo).filter(k => BOOSTS[k]) : [];
     bk.forEach((k, i) => { const x = px - (bk.length - 1) * 7 + i * 14; ctx.fillStyle = OUT; ctx.fillRect(x - 5, py - 18, 10, 10); ctx.fillStyle = BOOSTS[k].color; ctx.fillRect(x - 4, py - 17, 8, 8); });
   }
   if (P && P.dead) {
     ctx.font = '10px "Press Start 2P", monospace'; const px = sx(P.x, P.y), py = sy(P.y) - 110;
     const msg = P.reviveT > 0 ? 'REVIVIENDO ' + Math.round(P.reviveT / 2.5 * 100) + '%' : 'CAÍDO: UN ALIADO PUEDE REVIVIRTE';
+    if (specTarget()) return;
     ctx.lineWidth = 4; ctx.strokeStyle = OUT; ctx.strokeText(msg, px, py); ctx.fillStyle = '#ff4d6d'; ctx.fillText(msg, px, py);
   }
 }
