@@ -413,6 +413,7 @@ i.ticket::after{content:"";position:absolute;left:5px;top:3px;width:2px;height:6
     <div class="panel center">
       <h2>¡Subes de nivel!</h2>
       <p class="lead">Elige una mejora (también con las teclas <b>1</b>, <b>2</b> y <b>3</b>).</p>
+      <p class="eyebrow" id="lvTimer" hidden style="color:#7ec8ff;text-align:center"></p>
       <div class="cards" id="cards"></div>
     </div>
   </div>
@@ -3009,7 +3010,8 @@ function buildOptions() {
   return out;
 }
 function openLevelUp() {
-  if (isCoop()) P.choosing = true; else state = 'levelup';
+  if (isCoop()) { if (!P.choosing) P.chooseT = 20; P.choosing = true; } else state = 'levelup';
+  $('#lvTimer').hidden = !isCoop();
   opts = buildOptions();
   const box = $('#cards'); box.innerHTML = '';
   opts.forEach((o, i) => {
@@ -3603,6 +3605,7 @@ function render(ts) {
     }
     drawIndicators(sx, sy, t);
     drawHud(t);
+    drawCoopPause(t);
   }
   if (trans) {
     const a = Math.max(0, Math.min(1, trans.t < trans.half ? trans.t / trans.half : 1 - (trans.t - trans.half) / trans.half));
@@ -4153,7 +4156,8 @@ function loop(ts) {
   const dt = Math.min(0.05, (ts - last) / 1000 || 0); last = ts;
   try { netTick(dt); } catch (e) { console.error(e); }
   if (state === 'play') {
-    update(dt);
+    if (coopPaused()) coopPausedTick(dt);
+    else { if (NET && NET.wasPaused) { NET.wasPaused = false; P.inv = Math.max(P.inv, 1); } update(dt); }
     if (state === 'play' && pendingLv > 0 && !P.choosing) openLevelUp();
   } else if (state === 'trans') {
     trans.t += dt;
@@ -4457,7 +4461,8 @@ function buildSnap(p) {
   const h = [];
   for (const o of hz) { if (!o.id) o.id = ++hidN; const c = {}; for (const k in o) if (k !== 'e' && typeof o[k] !== 'object') c[k] = typeof o[k] === 'number' ? Math.round(o[k] * 100) / 100 : o[k]; h.push(c); }
   const big = enemies.find(o => ETYPES[o.type].rift && o.call && o.call.t > 0);
-  return { k:'s', t:+time.toFixed(2), md:mode, lv:P.lv, xp:Math.round(P.xp), nx:P.next, ki:kills, bk:bossKills, pl, e, g, b:bl, w, h,
+  const pz = []; if (P.choosing) pz.push([NET.id, NET.name]); for (const q of NET.peers.values()) if (q.choosing) pz.push([q.id, q.name]);
+  return { k:'s', pz, t:+time.toFixed(2), md:mode, lv:P.lv, xp:Math.round(P.xp), nx:P.next, ki:kills, bk:bossKills, pl, e, g, b:bl, w, h,
     op:outposts.map(o => [Math.round(o.x), Math.round(o.y), o.type, +o.prog.toFixed(2)]), bc:bigChests.map(c => [Math.round(c.x), Math.round(c.y), +c.prog.toFixed(2)]),
     rf:rift ? [Math.round(rift.x), Math.round(rift.y), Math.round(rift.life)] : 0, ep:exitPortal ? [exitPortal.x, exitPortal.y] : 0, cl:big ? big.call.txt : 0 };
 }
@@ -4512,6 +4517,7 @@ function guestSwitchMode(md) {
 }
 function guestSnap(s) {
   NET.lastSnap = performance.now();
+  NET.pz = s.pz || [];
   if (s.md !== mode) { guestSwitchMode(s.md); if (mode === 'rift') { P.x = rand(-50, 50); P.y = 150; } else if (s.pl && s.pl[0]) { P.x = s.pl[0][1] + rand(-30, 30); P.y = s.pl[0][2] + 20; } camX = P.x; camY = P.y; }
   if (Math.abs(time - s.t) > 1) time = s.t; else time += (s.t - time) * 0.2;
   kills = s.ki; bossKills = s.bk;
@@ -4704,6 +4710,41 @@ function coopLeave() {
   if (NET.role === 'host') { const m = { k:'end', why:'El anfitrión ha salido de la partida.' }; sendAll(m); sendAll(m); setTimeout(() => sendAll(m), 150); } else { const h = NET.peers.get('host'); if (h) { sendTo(h, { k:'bye' }); sendTo(h, { k:'bye' }); } }
   setTimeout(netClose, 300);
   NET.inGame = false;
+}
+
+/* ---------- pausa de equipo mientras alguien elige mejora ---------- */
+function coopPaused() {
+  if (!isCoop() || !P) return false;
+  if (P.choosing) return true;
+  if (NET.role === 'host') { for (const q of NET.peers.values()) if (q.choosing) return true; return false; }
+  return !!(NET.pz && NET.pz.length);
+}
+function coopPausedTick(dt) {
+  NET.wasPaused = true;
+  if (P.choosing) {
+    P.chooseT -= dt;
+    $('#lvTimer').textContent = 'El equipo está en pausa esperándote · ' + Math.max(0, Math.ceil(P.chooseT)) + ' s';
+    if (P.chooseT <= 0 && opts && opts.length) choose(Math.floor(Math.random() * opts.length));
+  }
+  for (const tx of texts) { tx.t -= dt; tx.y -= 30 * dt; } texts = texts.filter(tx => tx.t > 0);
+  for (const p of parts) { p.t -= dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 0.94; p.vy *= 0.94; } parts = parts.filter(p => p.t > 0);
+  for (const bm of booms) bm.t -= dt; booms = booms.filter(bm => bm.t > 0);
+}
+function pausedNames() {
+  if (!isCoop()) return [];
+  if (NET.role === 'host') { const l = []; for (const q of NET.peers.values()) if (q.choosing) l.push(q.name); return l; }
+  return (NET.pz || []).filter(a => a[0] !== NET.id).map(a => a[1]);
+}
+function drawCoopPause(t) {
+  if (!coopPaused() || P.choosing) return;
+  const names = pausedNames();
+  ctx.fillStyle = 'rgba(11,14,28,.55)'; ctx.fillRect(0, 0, VW, VH);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.font = '16px "Press Start 2P", monospace'; ctx.lineWidth = 5; ctx.strokeStyle = OUT;
+  ctx.strokeText('PAUSA DE EQUIPO', VW / 2, VH / 2 - 18); ctx.fillStyle = '#7ec8ff'; ctx.fillText('PAUSA DE EQUIPO', VW / 2, VH / 2 - 18);
+  ctx.font = '9px "Press Start 2P", monospace';
+  const msg = (names.length ? names.join(', ') : 'Un compañero') + (names.length > 1 ? ' están' : ' está') + ' eligiendo mejora' + '.'.repeat(1 + Math.floor(t * 2) % 3);
+  ctx.strokeText(msg, VW / 2, VH / 2 + 14); ctx.fillStyle = '#eef1ff'; ctx.fillText(msg, VW / 2, VH / 2 + 14);
 }
 
 /* ---------- aliados en pantalla ---------- */
