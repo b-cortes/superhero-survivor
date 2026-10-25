@@ -3299,6 +3299,26 @@ function drawGroundFx(t) {
     b.fillRect(P2(m.x) - 3, P2(m.y), 7, 1); b.fillRect(P2(m.x), P2(m.y) - 2, 1, 5);
   }
 }
+function drawAirLayer(t) {
+    if (P.weapons.escudo && wst.escudo) for (const [x, y] of wst.escudo.pos) {
+      const bx = P2(x), by = P2(y) - 5;
+      b.fillStyle = 'rgba(227,161,44,.3)'; pcirc(b, bx, by, 6);
+      b.fillStyle = OUT; pcirc(b, bx, by, 4);
+      b.fillStyle = '#e3a12c'; pcirc(b, bx, by, 3);
+      b.fillStyle = '#ffe08a'; b.fillRect(bx - 2, by - 1, 4, 3); b.fillRect(bx - 1, by - 2, 3, 1);
+      b.fillStyle = '#7df9ff'; b.fillRect(bx, by, 1, 1);
+    }
+    for (const s of shots) {
+      const x = P2(s.x), y = P2(s.y), ux = Math.cos(s.a), uy = Math.sin(s.a);
+      if (s.kind === 'pua') { b.fillStyle = OUT; pline(b, x - ux * 5, y - uy * 5 + 1, x + ux, y + uy + 1); b.fillStyle = '#a89878'; pline(b, x - ux * 5, y - uy * 5, x - ux * 2, y - uy * 2); b.fillStyle = '#ffffff'; pline(b, x - ux * 2, y - uy * 2, x + ux, y + uy); continue; }
+      if (s.kind === 'bala') { b.fillStyle = 'rgba(255,210,63,.5)'; pline(b, x - ux * 6, y - uy * 6, x, y); b.fillStyle = '#fff3a3'; pline(b, x - ux * 2, y - uy * 2, x, y); continue; }
+      b.fillStyle = 'rgba(0,0,0,.3)'; b.fillRect(x - 1, y + 4, 3, 1);
+      b.fillStyle = OUT; pline(b, x - ux * 5, y - uy * 5 + 1, x, y + 1);
+      b.fillStyle = '#4f8fe8'; pline(b, x - ux * 5, y - uy * 5, x - ux * 2, y - uy * 2);
+      b.fillStyle = '#e8f8ff'; pline(b, x - ux * 2, y - uy * 2, x, y);
+    }
+  drawAirFx(t);
+}
 function drawAirFx(t) {
   for (const tn of tornados) {
     const x = P2(tn.x), y = P2(tn.y), R0 = P2(tn.r), fade = Math.min(1, tn.t * 3, (tn.life - tn.t) * 5);
@@ -3435,6 +3455,7 @@ function render(ts) {
 
   if (P) {
     drawGroundFx(t);
+    allyFxLayer('ground', t);
     for (const w of warnings) {
       if (w.t > w.max) continue;
       const k = 1 - w.t / w.max;
@@ -3519,26 +3540,11 @@ function render(ts) {
     depth.sort((a, c) => a.y - c.y);
     for (const d of depth) d.f();
     drawHero(0.35);
+    drawBoostAura(P.x, P.y, Object.keys(P.boosts).filter(k => k !== 'escudo'), t);
     if (boostOn('escudo')) { b.fillStyle = Math.floor(t * 8) % 2 ? '#ffd23f' : '#fff3a3'; pring(b, P2(P.x), heroBase - 10, 13); }
 
-    if (P.weapons.escudo && wst.escudo) for (const [x, y] of wst.escudo.pos) {
-      const bx = P2(x), by = P2(y) - 5;
-      b.fillStyle = 'rgba(227,161,44,.3)'; pcirc(b, bx, by, 6);
-      b.fillStyle = OUT; pcirc(b, bx, by, 4);
-      b.fillStyle = '#e3a12c'; pcirc(b, bx, by, 3);
-      b.fillStyle = '#ffe08a'; b.fillRect(bx - 2, by - 1, 4, 3); b.fillRect(bx - 1, by - 2, 3, 1);
-      b.fillStyle = '#7df9ff'; b.fillRect(bx, by, 1, 1);
-    }
-    for (const s of shots) {
-      const x = P2(s.x), y = P2(s.y), ux = Math.cos(s.a), uy = Math.sin(s.a);
-      if (s.kind === 'pua') { b.fillStyle = OUT; pline(b, x - ux * 5, y - uy * 5 + 1, x + ux, y + uy + 1); b.fillStyle = '#a89878'; pline(b, x - ux * 5, y - uy * 5, x - ux * 2, y - uy * 2); b.fillStyle = '#ffffff'; pline(b, x - ux * 2, y - uy * 2, x + ux, y + uy); continue; }
-      if (s.kind === 'bala') { b.fillStyle = 'rgba(255,210,63,.5)'; pline(b, x - ux * 6, y - uy * 6, x, y); b.fillStyle = '#fff3a3'; pline(b, x - ux * 2, y - uy * 2, x, y); continue; }
-      b.fillStyle = 'rgba(0,0,0,.3)'; b.fillRect(x - 1, y + 4, 3, 1);
-      b.fillStyle = OUT; pline(b, x - ux * 5, y - uy * 5 + 1, x, y + 1);
-      b.fillStyle = '#4f8fe8'; pline(b, x - ux * 5, y - uy * 5, x - ux * 2, y - uy * 2);
-      b.fillStyle = '#e8f8ff'; pline(b, x - ux * 2, y - uy * 2, x, y);
-    }
-    drawAirFx(t);
+    drawAirLayer(t);
+    allyFxLayer('air', t);
     for (const eb of ebullets) {
       const x = P2(eb.x), y = P2(eb.y);
       b.fillStyle = 'rgba(0,0,0,.3)'; b.fillRect(x - 1, y + 5, 3, 1);
@@ -4279,7 +4285,7 @@ function sendTo(peer, msg, reliable = true) {
     try { const s = JSON.stringify(msg); if (!reliable && s.length > 60000) return; ch.send(s); return; } catch (e) { peer.link = 'relay'; }
   }
   if (!reliable && msg.k === 's' && peer.link !== 'direct') { const now = performance.now(); if (now - (peer.relayT || 0) < 150) return; peer.relayT = now; }
-  relayOut(peer, msg, msg.k === 's' || msg.k === 'i' || msg.k === 'ev');
+  relayOut(peer, msg, msg.k === 's' || msg.k === 'i' || msg.k === 'ev' || msg.k === 'fx');
 }
 function sendAll(msg, reliable = true) { if (NET) for (const p of NET.peers.values()) sendTo(p, msg, reliable); }
 
@@ -4352,6 +4358,7 @@ function netIn(from, m, via, bi) {
     if (m.k === 'hero') { p.hero = HEROES[m.hero] ? m.hero : p.hero; lobbyBroadcast(); lobbyRender(); return; }
     if (m.k === 'i') { p.gotInput = true; p.tx = m.x; p.ty = m.y; if (Math.hypot(p.tx - p.x, p.ty - p.y) > 300) { p.x = p.tx; p.y = p.ty; } p.ring = m.r; p.moving = !!m.mv; p.hp = m.hp; p.maxHp = m.mh; p.dead = !!m.dd; p.fx = m.fx || 0; p.fy = m.fy || 0; p.choosing = !!m.ch; return; }
     if (m.k === 'ev') { hostApplyGuestEvents(p, m); return; }
+    if (m.k === 'fx') { p.fxs = m.f; return; }
   } else {
     if (m.k === 'sdp' || m.k === 'ice') { const p = NET.peers.get('host') || makePeer('host'); p.last = performance.now(); onSignal(p, m); return; }
     const p = NET.peers.get('host') || makePeer('host');
@@ -4364,6 +4371,7 @@ function netIn(from, m, via, bi) {
     if (m.k === 'start') { guestStart(m); return; }
     if (m.k === 's') { if (NET.inGame) guestSnap(m); return; }
     if (m.k === 'ev') { if (NET.inGame) guestEvents(m.d); return; }
+    if (m.k === 'fx') { if (NET.inGame) for (const [id, f] of m.l) { const o = others.get(id); if (o) o.fx = f; } return; }
     if (m.k === 'end') { if (NET.inGame) coopEnd(m.why || ''); else { lobbyMsg('El anfitrión ha cerrado la sala.'); netClose(); lobbyShow('start'); } return; }
   }
 }
@@ -4406,6 +4414,18 @@ function netTick(dt) {
     if (NET.sendT <= 0 && P) { NET.sendT = 1 / 15; for (const p of NET.peers.values()) sendTo(p, buildSnap(p), false); }
     NET.evT -= dt;
     if (NET.evT <= 0) { NET.evT = 0.1; for (const p of NET.peers.values()) if (p.q && p.q.length) { sendTo(p, { k:'ev', d:p.q }); p.q = []; } }
+    for (const p of NET.peers.values()) fxAdvance(p.fxs, dt);
+    NET.fxT = (NET.fxT || 0) - dt;
+    if (NET.fxT <= 0 && P) {
+      NET.fxT = 0.1;
+      const mineD = fxSerialize(false), mineR = fxSerialize(true);
+      for (const p of NET.peers.values()) {
+        if (p.link !== 'direct' && (p.fxRelayT = (p.fxRelayT || 0) + 1) % 3) continue;
+        const l = [[NET.id, p.link === 'direct' ? mineD : mineR]];
+        for (const q of NET.peers.values()) if (q !== p && q.fxs) l.push([q.id, q.fxs]);
+        sendTo(p, { k:'fx', l }, false);
+      }
+    }
   } else {
     const h = NET.peers.get('host');
     NET.sendT -= dt;
@@ -4413,6 +4433,9 @@ function netTick(dt) {
       NET.sendT = h.link === 'direct' ? 1 / 15 : 1 / 7;
       sendTo(h, { k:'i', x:Math.round(P.x), y:Math.round(P.y), r:P.ring, mv:P.moving ? 1 : 0, hp:Math.round(P.hp), mh:Math.round(P.maxHp), dd:P.dead ? 1 : 0, fx:+P.fx.toFixed(2), fy:+P.fy.toFixed(2), ch:P.choosing ? 1 : 0 }, false);
     }
+    for (const o of others.values()) fxAdvance(o.fx, dt);
+    NET.fxT = (NET.fxT || 0) - dt;
+    if (NET.fxT <= 0 && P && h) { const relay = h.link !== 'direct'; NET.fxT = relay ? 0.3 : 0.1; sendTo(h, { k:'fx', f:fxSerialize(relay) }, false); }
     NET.evT -= dt;
     const G = NET.gout;
     if (NET.evT <= 0 && h && G && (G.d.length || G.p.length || G.xp || G.bh.length || G.hx.length || G.fx.length || G.rift || G.exit)) {
@@ -4747,10 +4770,68 @@ function drawCoopPause(t) {
   ctx.strokeText(msg, VW / 2, VH / 2 + 14); ctx.fillStyle = '#eef1ff'; ctx.fillText(msg, VW / 2, VH / 2 + 14);
 }
 
+/* ---------- ver los poderes y mejoras de los compañeros ---------- */
+const FXN = ['shots', 'patches', 'discs', 'slashes', 'pulses', 'vials', 'missiles', 'holes', 'meteors', 'timeRings', 'tornados', 'roots', 'saws', 'ghosts', 'traps', 'turrets', 'rocks', 'bolts'];
+const fxGet = () => [shots, patches, discs, slashes, pulses, vials, missiles, holes, meteors, timeRings, tornados, roots, saws, ghosts, traps, turrets, rocks, bolts];
+function fxSet(a) { [shots, patches, discs, slashes, pulses, vials, missiles, holes, meteors, timeRings, tornados, roots, saws, ghosts, traps, turrets, rocks, bolts] = a; }
+function fxSerialize(relay) {
+  const cap = relay ? 22 : 60, out = {};
+  const cp = o => { const c = {}; for (const k in o) { const v = o[k]; if (typeof v === 'number') c[k] = Math.round(v * 10) / 10; else if (typeof v === 'string' || typeof v === 'boolean') c[k] = v; } return c; };
+  fxGet().forEach((arr, i) => { if (arr.length) out[i] = arr.slice(Math.max(0, arr.length - cap)).map(cp); });
+  const w = {};
+  for (const k in wst) { const o = cp(wst[k]); if (wst[k].pos) o.pos = wst[k].pos.map(p => [Math.round(p[0]), Math.round(p[1])]); w[k] = o; }
+  const bo = {}; for (const k in P.boosts) bo[k] = Math.round(P.boosts[k]);
+  return { a:out, w, wp:Object.keys(P.weapons), bo };
+}
+function fxAdvance(f, dt) {
+  if (!f || !f.a) return;
+  for (const i in f.a) {
+    const arr = f.a[i], name = FXN[i];
+    for (const o of arr) {
+      if (o.vx !== undefined && !(name === 'discs' && !o.out)) { o.x += o.vx * dt; o.y += o.vy * dt; }
+      if (name === 'missiles') { o.x += Math.cos(o.a) * o.sp * dt; o.y += Math.sin(o.a) * o.sp * dt; }
+      if (name === 'pulses') o.r = Math.min(o.max - 0.1, o.r + o.max / 0.35 * dt);
+      if (name === 'saws' || name === 'discs') o.spin = (o.spin || 0) + dt * 20;
+      if (name === 'timeRings') { o.t -= dt; o.r = o.max * (1 - Math.max(0, o.t) / 0.5); }
+      else if (name === 'slashes' || name === 'bolts' || name === 'meteors') o.t -= dt;
+    }
+    if (name === 'slashes' || name === 'bolts' || name === 'timeRings') f.a[i] = arr.filter(o => o.t > 0);
+  }
+  if (f.w && f.w.laser && f.w.laser.on) f.w.laser.a = (f.w.laser.a || 0) + 2.2 * dt;
+}
+function allyFxLayer(layer, t) {
+  if (!isCoop()) return;
+  for (const a of allyList()) {
+    const f = a.fx; if (!f || !f.a) continue;
+    const saveA = fxGet(), saveP = P, saveW = wst, saveH = heroKey;
+    try {
+      fxSet(FXN.map((n, i) => f.a[i] || []));
+      const weapons = {}; for (const k of f.wp || []) weapons[k] = 1;
+      P = { x:a.x, y:a.y, fx:1, fy:0, ring:a.ring, moving:a.moving, weapons, boosts:f.bo || {}, passives:{}, r:14 };
+      wst = f.w || {}; heroKey = a.hero;
+      if (layer === 'ground') drawGroundFx(t);
+      else { drawAirLayer(t); for (const bo of bolts) drawBolt(bo); }
+    } catch (e) { } finally { fxSet(saveA); P = saveP; wst = saveW; heroKey = saveH; }
+  }
+}
+function drawBoostAura(x, y, keys, t) {
+  if (!keys || !keys.length) return;
+  const bx = P2(x), by = P2(y) + 6;
+  keys.forEach((k, i) => {
+    const B = BOOSTS[k]; if (!B) return;
+    const r = 9 + i * 2 + Math.round(Math.sin(t * 6 + i) * 1);
+    b.globalAlpha = 0.55; b.fillStyle = B.color; pring(b, bx, by - 1, r, 1, 0.45);
+    b.globalAlpha = 0.9; const a = t * 3 + i * 2; b.fillRect(Math.round(bx + Math.cos(a) * r), Math.round(by - 1 + Math.sin(a) * r * 0.45) - (Math.floor(t * 8 + i) % 3), 1, 2);
+    b.globalAlpha = 1;
+  });
+  if (keys.includes('escudo')) { b.fillStyle = Math.floor(t * 8) % 2 ? '#ffd23f' : '#fff3a3'; pring(b, bx, by - 16, 13); }
+}
+
 /* ---------- aliados en pantalla ---------- */
-function allyList() { if (!NET || !NET.inGame) return []; return NET.role === 'host' ? [...NET.peers.values()].map(p => ({ id:p.id, x:p.x, y:p.y, hp:p.hp, maxHp:p.maxHp, ring:p.ring, moving:p.moving, dead:p.dead, hero:p.hero, name:p.name, walkT:p.walkT })) : [...others.values()]; }
+function allyList() { if (!NET || !NET.inGame) return []; return NET.role === 'host' ? [...NET.peers.values()].map(p => ({ id:p.id, x:p.x, y:p.y, hp:p.hp, maxHp:p.maxHp, ring:p.ring, moving:p.moving, dead:p.dead, hero:p.hero, name:p.name, walkT:p.walkT, fx:p.fxs })) : [...others.values()]; }
 function drawAlly(a, t) {
   const bx = P2(a.x), by = P2(a.y) + 6, [dir, fl] = RING[a.ring || 2];
+  if (a.fx && a.fx.bo && !a.dead) drawBoostAura(a.x, a.y, Object.keys(a.fx.bo), t);
   const fr = a.moving && !a.dead ? Math.floor(a.walkT * 8) % 4 : 4 + (Math.floor(t * 1.6) % 2);
   shadowP(bx, by, 14);
   const s = heroSprite(a.hero, dir, fr, fl);
@@ -4768,6 +4849,8 @@ function drawAllyNames(sx, sy) {
     const px = sx(a.x, a.y), py = sy(a.y) - 96;
     if (px < 0 || px > VW || py < 0 || py > VH) continue;
     ctx.lineWidth = 4; ctx.strokeStyle = OUT; ctx.strokeText(a.name, px, py); ctx.fillStyle = a.dead ? '#ff4d6d' : '#7ec8ff'; ctx.fillText(a.name, px, py);
+    const bk = a.fx && a.fx.bo ? Object.keys(a.fx.bo).filter(k => BOOSTS[k]) : [];
+    bk.forEach((k, i) => { const x = px - (bk.length - 1) * 7 + i * 14; ctx.fillStyle = OUT; ctx.fillRect(x - 5, py - 18, 10, 10); ctx.fillStyle = BOOSTS[k].color; ctx.fillRect(x - 4, py - 17, 8, 8); });
   }
   if (P && P.dead) {
     ctx.font = '10px "Press Start 2P", monospace'; const px = sx(P.x, P.y), py = sy(P.y) - 110;
