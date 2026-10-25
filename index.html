@@ -85,9 +85,8 @@ h3{font-size:11px;color:var(--muted);letter-spacing:.06em}
 .topbar{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
 .wallet{display:flex;gap:10px;flex-wrap:wrap}
 .chip{display:flex;align-items:center;gap:8px;background:var(--panel);border:4px solid var(--line);padding:6px 10px;font-family:var(--f-display);font-size:12px}
-i.coin{display:inline-block;width:14px;height:14px;background:var(--pow);box-shadow:inset -3px -3px 0 #c89a16,0 0 0 2px #0b0e1c;border-radius:0}
-i.ticket{display:inline-block;width:18px;height:12px;background:#ff8a3d;box-shadow:inset 0 -3px 0 #c25a1a,0 0 0 2px #0b0e1c;position:relative}
-i.ticket::after{content:"";position:absolute;left:5px;top:3px;width:2px;height:6px;background:#0b0e1c}
+i.coin{display:inline-block;width:19px;height:19px;background:var(--coin-img,var(--pow)) center/contain no-repeat;image-rendering:pixelated;vertical-align:middle;flex:none}
+i.ticket{display:inline-block;width:27px;height:18px;background:var(--ticket-img,#ff8a3d) center/contain no-repeat;image-rendering:pixelated;vertical-align:middle;flex:none}
 .home{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:16px}
 @media (max-width:720px){.home{grid-template-columns:1fr}}
 .showcase{--c:var(--r-comun);background:var(--panel);border:4px solid var(--c);display:grid;grid-template-columns:150px minmax(0,1fr);gap:14px;padding:12px;align-items:center}
@@ -1344,8 +1343,46 @@ for (const k in PAINT) {
 }
 for (const k of RIFT_BOSSES) ESPR[k] = [0, 1, 2, 3].map(fr => [[bossSprite(k, 0, fr, 0, 0), bossSprite(k, 0, fr, 0, 1), bossSprite(k, 0, fr, 0, 2)], [bossSprite(k, 0, fr, 1, 0), bossSprite(k, 0, fr, 1, 1), bossSprite(k, 0, fr, 1, 2)]]);
 const CHEST = autoShade(makePix(['..bbbbb..','.bBBBBBb.','bbbbbbbbb','yyyyyyyyy','bbbbybbbb','bBBByBBBb','bbbbbbbbb'], { y:'#ffd23f', b:'#8a5a2a', B:'#5a3a1a' }, 'chest'));
-const COIN = makePix(['.yyy.','yYyyy','yYyyc','yyyyc','.ccc.'], { y:'#ffd23f', Y:'#fff3a3', c:'#c89a16' }, 'coin');
-const TICKET = makePix(['ooooooo','oO.oooo','oo.oooo','ccccccc'], { o:'#ff8a3d', O:'#ffc08a', c:'#c25a1a' }, 'ticket');
+// Moneda de oro de Ciudad Nexo: canto, relieve con estrella y brillo. 4 fases de giro.
+function coinFrame(sq) {
+  const W = 13, H = 13, cx = 6, cy = 6;
+  return paintSprite(W, H, (R) => {
+    const rx = Math.max(1, 6 * sq), ry = 6;
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const nx = (x - cx) / rx, ny = (y - cy) / ry, d = nx * nx + ny * ny;
+      if (d > 0.93) continue;
+      const lit = -nx * 0.6 - ny * 0.8;
+      let c = d > 0.6 ? (lit > 0.3 ? '#ffe680' : lit > -0.35 ? '#e8a828' : '#a8701a') : (lit > 0.55 ? '#fff3a3' : '#ffd23f');
+      if (sq < 0.5 && d > 0.25) c = lit > 0 ? '#ffd23f' : '#c89a16';
+      R(x, y, 1, 1, c);
+    }
+    if (sq > 0.6) {
+      // estrella en relieve
+      const ST = ['...X...','..XXX..','XXXXXXX','.XXXXX.','..XXX..','.XX.XX.','.X...X.'];
+      ST.forEach((row, j) => [...row].forEach((ch, i) => { if (ch === 'X') R(Math.round(cx + (i - 3) * sq), cy - 3 + j, 1, 1, j < 2 ? '#c8891a' : '#b8780e'); }));
+      R(cx, cy - 2, 1, 1, '#ffe680');
+      R(cx - 3, cy - 4, 2, 1, '#ffffff'); R(cx - 4, cy - 3, 1, 1, '#ffffff');
+    } else R(cx, cy - 3, 1, 2, '#ffffff');
+  }, 0);
+}
+const COINF = [coinFrame(1), coinFrame(0.7), coinFrame(0.3), coinFrame(0.7)];
+const COIN = COINF[0];
+// Ticket de gachapón: muescas laterales, línea troquelada, sello de estrella y franja brillante
+const TICKET = paintSprite(19, 12, (R) => {
+  for (let y = 0; y < 12; y++) for (let x = 0; x < 19; x++) {
+    const corner = (x === 0 || x === 18) && (y === 0 || y === 11);
+    const notch = ((x === 0 || x === 18) && y >= 4 && y <= 7) || ((x === 1 || x === 17) && y >= 5 && y <= 6);
+    if (corner || notch) continue;
+    R(x, y, 1, 1, y < 2 ? '#ffb26b' : y > 9 ? '#d0561a' : '#ff8a3d');
+  }
+  for (let y = 1; y < 11; y += 2) R(5, y, 1, 1, '#a8401a');
+  R(1, 3, 3, 1, '#fff3e0'); R(1, 5, 2, 1, '#fff3e0'); R(1, 7, 3, 1, '#fff3e0');
+  const S = [[2,-3],[2,-2],[1,-1],[2,-1],[3,-1],[-1,0],[0,0],[1,0],[2,0],[3,0],[4,0],[5,0],[1,1],[2,1],[3,1],[0,2],[1,2],[3,2],[4,2]];
+  for (const [dx, dy] of S) R(9 + dx, 5 + dy, 1, 1, '#ffe066');
+  R(11, 4, 1, 1, '#ffffff'); R(11, 2, 1, 1, '#fff3a3');
+  R(15, 3, 2, 1, '#ffd0a8'); R(15, 5, 2, 1, '#ffd0a8'); R(15, 7, 2, 1, '#ffd0a8');
+}, 0);
+try { document.documentElement.style.setProperty('--coin-img', 'url(' + COIN.toDataURL() + ')'); document.documentElement.style.setProperty('--ticket-img', 'url(' + TICKET.toDataURL() + ')'); } catch (e) {}
 const CRYSTAL = autoShade(makePix(['...C...','..CcC..','..Ccc..','.CCccc.','.Ccccc.','.Cccdc.','.Cccdc.','.ccddc.','.ccddc.','kkkkkkk','.kkkkk.'], { C:'#b8fbff', c:'#5ff0ff', d:'#2aa8c8', k:'#2a1f4a' }, 'crystal'));
 const beaconCache = {};
 function beaconSprite(color) {
@@ -3496,9 +3533,9 @@ function render(ts) {
         b.drawImage(CHEST, x - 5, y - 6 - (Math.floor(t * 3) % 2));
         if (Math.floor(t * 4) % 2) { b.fillStyle = '#fff6d5'; b.fillRect(x + 4, y - 9, 1, 1); }
       } else if (g.kind === 'coin') {
-        b.drawImage(COIN, x - 3, y - 3 - (Math.floor(t * 4 + g.x) % 2));
+        const cf = COINF[Math.floor(t * 7 + g.x * 0.13) & 3]; b.fillStyle = 'rgba(0,0,0,.3)'; b.fillRect(x - 3, y + 4, 7, 1); b.drawImage(cf, x - (cf.width >> 1), y - 7 - (Math.floor(t * 4 + g.x) % 2));
       } else if (g.kind === 'ticket') {
-        b.drawImage(TICKET, x - 4, y - 3 - (Math.floor(t * 3) % 2));
+        b.fillStyle = 'rgba(0,0,0,.3)'; b.fillRect(x - 5, y + 4, 11, 1); b.drawImage(TICKET, x - 10, y - 9 - (Math.floor(t * 3) % 2));
         if (Math.floor(t * 5) % 2) { b.fillStyle = '#fff3a3'; b.fillRect(x + 4, y - 5, 1, 1); }
       } else {
         const col = g.v >= 8 ? '#ff5cf0' : g.v >= 4 ? '#ffd23f' : '#5cffb0', big = g.v >= 4;
@@ -3681,8 +3718,8 @@ function drawHud(t) {
   ctx.textAlign = 'left'; ctx.fillStyle = '#ffd23f'; ctx.font = font(16); txt('NV ' + P.lv, 16, 24);
   ctx.fillStyle = '#c9cff0'; ctx.font = font(9); txt('BAJAS ' + kills, 16, 48);
   ctx.imageSmoothingEnabled = false;
-  ctx.drawImage(COIN, 16, 64, 21, 21); ctx.fillStyle = '#ffd23f'; txt(String(run.coins), 42, 69);
-  ctx.drawImage(TICKET, 16, 92, 27, 18); ctx.fillStyle = '#ff8a3d'; txt(String(run.tickets), 48, 96);
+  ctx.drawImage(COIN, 14, 60, 26, 26); ctx.fillStyle = '#ffd23f'; txt(String(run.coins), 46, 69);
+  ctx.drawImage(TICKET, 12, 92, 32, 20); ctx.fillStyle = '#ff8a3d'; txt(String(run.tickets), 50, 98);
   ctx.textAlign = 'center'; ctx.fillStyle = '#eef1ff'; ctx.font = font(20); txt(fmt(time), VW / 2, 22);
   ctx.fillStyle = mode === 'rift' ? '#c9a8ff' : '#c9cff0'; ctx.font = font(8); txt(mode === 'rift' ? 'OTRO UNIVERSO' : !run || !run.prevBest ? 'SIN LÍMITE' : time > run.prevBest ? '¡NUEVO RÉCORD!' : 'RÉCORD ' + fmt(run.prevBest), VW / 2, 50);
   const big = enemies.find(e => ETYPES[e.type].rift) || enemies.find(e => e.type === 'jefe');
