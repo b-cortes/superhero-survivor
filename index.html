@@ -2389,7 +2389,7 @@ function update(dt) {
     const T = ETYPES[e.type];
     const TP = targetFor(e);
     const dx = TP.x - e.x, dy = TP.y - e.y, d = Math.hypot(dx, dy) || 1;
-    if (T.static) { e.flash -= dt; e.shk = Math.max(0, (e.shk || 0) - dt); if (d > 1800) e.dead = true; continue; }
+    if (T.static) { e.flash -= dt; e.orbCd -= dt; e.shk = Math.max(0, (e.shk || 0) - dt); if (d > 1800) e.dead = true; continue; }
     if (mode === 'city' && d > far && !T.big) {
       const a = Math.atan2(TP.fy || 0, TP.fx || 1) + rand(-1, 1), q = Math.hypot(VW * 1.35, VH) / 2 + 50;
       e.x = TP.x + Math.cos(a) * q; e.y = TP.y + Math.sin(a) * q; continue;
