@@ -3011,7 +3011,7 @@ function update(dt) {
   camFollow();
   updateAmbient(dt, true);
 
-  if (P.hp <= 0 || P.dead) { if (isHost()) hostCoopDeath(); else return endGame(false); }
+  if (P.hp <= 0 || P.dead) { if (isHost()) hostCoopDeath(); else return startDeath(); }
   if (state !== 'play') return;
   if (threatLv(time) > (run.threat || 1)) { run.threat = threatLv(time); sayAll('¡Amenaza ' + run.threat + '! Los enemigos se hacen más fuertes' + (run.threat === 2 ? '' : run.threat === 3 ? ' y llegan las élites' : ''), 2.8, '#ff9f1c'); }
   // sin límite de tiempo: hitos cada 5 minutos y aviso de récord
@@ -3564,6 +3564,63 @@ function settle(win) {
   persist();
   return { coins, tickets };
 }
+// Animación de muerte: destello, caída al suelo, el espíritu sale volando y la pantalla se apaga
+const DEATH_LEN = 2.6;
+function startDeath() {
+  if (state === 'dying' || state === 'over') return;
+  state = 'dying'; P.hp = 0; P.deathT = 0; P.inv = 0; shake = 14;
+  $('#levelup').hidden = true; $('#pauseBtn').hidden = true;
+  const H = HEROES[heroKey], cols = [H.pal.S, H.pal.A, H.pal.L || '#ffffff', '#ffffff'];
+  for (let i = 0; i < 26; i++) parts.push({ x:P.x, y:P.y - 12, vx:rand(-190, 190), vy:rand(-240, 40), t:rand(0.5, 1.1), c:pick(cols) });
+  boom(P.x, P.y - 6, 26, true);
+}
+function deathTick(dt) {
+  P.deathT += dt;
+  // el mundo sigue un poco a cámara lenta para que se vea el golpe final
+  const slow = dt * 0.25;
+  for (const e of enemies) { e.flash -= dt; if (ETYPES[e.type].rift && e.spm) e.walkT += slow; }
+  for (const tx of texts) { tx.t -= dt; tx.y -= 30 * dt; } texts = texts.filter(tx => tx.t > 0);
+  if (banner) { banner.t -= dt; if (banner.t <= 0) banner = null; }
+  updateAmbient(dt, false);
+  if (P.deathT >= DEATH_LEN) endGame(false);
+}
+// dibuja al héroe cayendo (también en cooperativo durante el primer segundo)
+function drawDyingHero(bx, by, t) {
+  const k = P.deathT, [dir, fl] = RING[P.ring], s = heroSprite(heroKey, dir, 4, fl);
+  b.imageSmoothingEnabled = false;
+  shadowP(bx, by, 15);
+  if (k < 0.35) {
+    const jit = Math.floor(t * 40) % 2 ? 1 : -1;
+    b.drawImage(Math.floor(k * 20) % 2 ? variant(s, false, true) : s, bx - (s.width >> 1) + jit, by - FY - 1);
+  } else {
+    const fk = Math.min(1, (k - 0.35) / 0.45), ang = (Math.floor(fk * 3) / 3) * (Math.PI / 2) * (P.fx < 0 ? -1 : 1);
+    b.save(); b.translate(bx, by - 2); b.rotate(ang); b.globalAlpha = Math.max(0.35, 1 - Math.max(0, k - 1.4)); b.drawImage(s, -(s.width >> 1), -FY + 1); b.restore();
+    b.globalAlpha = 1;
+    if (k > 0.8) {
+      const gk = Math.min(1, (k - 0.8) / 1.6), gy = by - FY - 1 - Math.round(gk * 40);
+      b.globalAlpha = 0.6 * (1 - gk); b.drawImage(ghostTint(s), bx - (s.width >> 1), gy); b.globalAlpha = 1;
+      for (let i = 0; i < 4; i++) { b.fillStyle = i % 2 ? '#5ff0ff' : '#ffffff'; b.fillRect(bx - 4 + i * 3, gy + 10 + ((Math.floor(t * 8) + i) % 4) * 3, 1, 1); }
+    }
+  }
+}
+function drawDeathOverlay() {
+  if (state !== 'dying' || !P) return;
+  const k = P.deathT, a = Math.min(1, k / DEATH_LEN);
+  ctx.fillStyle = `rgba(30,0,8,${(0.62 * a).toFixed(3)})`; ctx.fillRect(0, 0, VW, VH);
+  const g = ctx.createRadialGradient(VW / 2, VH / 2, Math.min(VW, VH) * 0.15, VW / 2, VH / 2, Math.max(VW, VH) * 0.7);
+  g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, `rgba(120,0,20,${(0.55 * a).toFixed(3)})`); ctx.fillStyle = g; ctx.fillRect(0, 0, VW, VH);
+  if (k > 0.8) {
+    const ta = Math.min(1, (k - 0.8) / 0.6);
+    ctx.globalAlpha = ta; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
+    ctx.font = Math.round(Math.min(34, VW / 16)) + 'px "Press Start 2P", monospace'; ctx.lineWidth = 8; ctx.strokeStyle = OUT;
+    const yy = VH * 0.32 - (1 - ta) * 20;
+    ctx.strokeText('HAS CAÍDO', VW / 2, yy); ctx.fillStyle = '#ff4d6d'; ctx.fillText('HAS CAÍDO', VW / 2, yy);
+    ctx.font = '10px "Press Start 2P", monospace'; ctx.lineWidth = 5;
+    const sub = 'Has resistido ' + fmt(time);
+    ctx.strokeText(sub, VW / 2, yy + 40); ctx.fillStyle = '#eef1ff'; ctx.fillText(sub, VW / 2, yy + 40);
+    ctx.globalAlpha = 1;
+  }
+}
 function endGame(win) {
   state = 'over'; $('#pauseBtn').hidden = true;
   const r = settle(win) || { coins:0, tickets:0 };
@@ -4053,6 +4110,7 @@ function render(ts) {
     const heroBase = P2(P.y) + 6;
     const drawHero = (alpha) => {
       const bx = P2(P.x), by = heroBase;
+      if (P.deathT !== undefined && (state === 'dying' || P.deathT < 2.4)) { if (alpha === 1) drawDyingHero(bx, by, t); return; }
       const [dir, fl] = RING[P.ring];
       const fr = P.moving ? Math.floor(P.walkT * 8) % 4 : 4 + (Math.floor(t * 1.6) % 2);
       if (alpha === 1) shadowP(bx, by, fr % 2 && P.moving ? 12 : 15);
@@ -4149,6 +4207,7 @@ function render(ts) {
     drawIndicators(sx, sy, t);
     drawHud(t);
     drawSpecHud();
+    drawDeathOverlay();
     drawCoopPause(t);
   }
   if (trans) {
@@ -4761,6 +4820,8 @@ function loop(ts) {
     trans.t += dt;
     if (!trans.done && trans.t >= trans.half) { trans.done = true; trans.cb(); }
     if (trans.t >= trans.half * 2) { trans = null; state = 'play'; }
+  } else if (state === 'dying') {
+    deathTick(dt);
   } else if (state === 'menu') {
     camX += 26 * dt; camY += 10 * dt;
     updateAmbient(dt, true);
@@ -5106,12 +5167,13 @@ function hostTeleportAll(cx, cy) {
   for (const p of NET.peers.values()) { i++; const x = cx + (i % 2 ? 1 : -1) * 34 * Math.ceil(i / 2), y = cy + 10; p.x = p.tx = x; p.y = p.ty = y; sendTo(p, { k:'ev', d:[['tp', x, y, mode]] }); }
 }
 function hostCoopDeath() {
-  if (!P.dead) { P.dead = true; P.hp = 0; P.reviveT = 0; spec.id = null; say('¡Has caído! Mira a tus compañeros mientras te reviven', 3, '#ff4d6d'); netQueue(['s', '¡' + NET.name + ' ha caído! Ve a revivirle', 3, '#ff4d6d']); }
+  if (!P.dead) { P.dead = true; P.hp = 0; P.reviveT = 0; P.deathT = 0; spec.id = null; for (let i = 0; i < 20; i++) parts.push({ x:P.x, y:P.y - 12, vx:rand(-170, 170), vy:rand(-220, 30), t:rand(0.5, 1), c:pick(['#ff4d6d', '#ffffff', '#ffd23f']) }); say('¡Has caído! Mira a tus compañeros mientras te reviven', 3, '#ff4d6d'); netQueue(['s', '¡' + NET.name + ' ha caído! Ve a revivirle', 3, '#ff4d6d']); }
   const anyAlive = [...NET.peers.values()].some(p => !p.dead);
   if (!anyAlive) { const m = { k:'end', why:'Todo el equipo ha caído.' }; sendAll(m); sendAll(m); coopEnd('Todo el equipo ha caído.'); }
 }
 // revivir: si estás caído y un aliado vivo se queda a tu lado
 function reviveTick(dt, allies) {
+  if (P.deathT !== undefined) { P.deathT += dt; if (!P.dead) P.deathT = undefined; }
   if (!P.dead) return;
   const helper = allies.find(a => !a.dead && Math.hypot(a.x - P.x, a.y - P.y) < 55);
   if (helper) { P.reviveT = (P.reviveT || 0) + dt; if (P.reviveT >= 2.5) { P.dead = false; P.hp = P.maxHp * 0.4; P.inv = 2; P.reviveT = 0; say('¡Te han revivido!', 2, '#5cffb0'); } }
@@ -5319,7 +5381,7 @@ function updateGuest(dt) {
   }
   warnings = warnings.filter(w => !w.fired);
   reviveTick(dt, [...others.values()]);
-  if (P.hp <= 0 && !P.dead) { P.dead = true; P.hp = 0; P.reviveT = 0; spec.id = null; say('¡Has caído! Mira a tus compañeros mientras te reviven', 3, '#ff4d6d'); }
+  if (P.hp <= 0 && !P.dead) { P.dead = true; P.hp = 0; P.reviveT = 0; P.deathT = 0; spec.id = null; for (let i = 0; i < 20; i++) parts.push({ x:P.x, y:P.y - 12, vx:rand(-170, 170), vy:rand(-220, 30), t:rand(0.5, 1), c:pick(['#ff4d6d', '#ffffff', '#ffd23f']) }); say('¡Has caído! Mira a tus compañeros mientras te reviven', 3, '#ff4d6d'); }
   for (const bo of bolts) bo.t -= dt; bolts = bolts.filter(bo => bo.t > 0);
   for (const t of texts) { t.t -= dt; t.y -= 30 * dt; } texts = texts.filter(t => t.t > 0);
   if (banner) { banner.t -= dt; if (banner.t <= 0) banner = null; }
@@ -5437,7 +5499,7 @@ function drawBoostAura(x, y, keys, t) {
 const spec = { id:null };
 function specList() { return allyList().filter(a => !a.dead); }
 function specTarget() {
-  if (!isCoop() || !P || !P.dead) return null;
+  if (!isCoop() || !P || !P.dead || (P.deathT !== undefined && P.deathT < 1.6)) return null;
   if (spec.id === 'me') return null;
   const l = specList(); if (!l.length) return null;
   return l.find(a => a.id === spec.id) || l[0];
