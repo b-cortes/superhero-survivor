@@ -241,6 +241,9 @@ i.ticket{display:inline-block;width:27px;height:18px;background:var(--ticket-img
 .villain{display:flex;align-items:center;gap:8px;background:rgba(21,26,51,.9);border:4px solid var(--line);padding:4px 10px 4px 6px;font-size:19px}
 .villain.mini{border-color:#7a3517}
 .villain.rift{border-color:#5b2a86}
+.errbtn{margin-top:10px;font-size:12px;padding:8px 12px}
+#errScr{background:rgba(5,7,16,.96);z-index:60}
+#errScr .lead{font-size:16px}
 .vworld{flex-basis:100%;font-family:'Press Start 2P',monospace;font-size:10px;color:#ffd23f;margin:10px 0 2px}
 .villain canvas{height:34px;width:auto}
 #wCanvas{width:150px;aspect-ratio:26/34;background:#10132a;border:4px solid var(--line)}
@@ -268,6 +271,7 @@ i.ticket{display:inline-block;width:27px;height:18px;background:var(--ticket-img
           <button class="btn ghost" id="heroesBtn">HÉROES <small id="ownedCount"></small></button>
           <button class="btn ghost" id="gachaBtn">GACHAPÓN</button>
           <button class="btn ghost" id="coopBtn" style="border-color:#7ec8ff;color:#7ec8ff">JUGAR CON AMIGOS</button>
+          <button class="btn ghost errbtn" id="errBtnM" hidden>Informe de errores</button>
         </div>
       </div>
       <p class="lead">El <b>Doctor Óxido</b> manda oleada tras oleada. Aguanta <b>todo lo que puedas</b> y supera tu récord. Gana <b>monedas</b> para mejorar a tus héroes y <b>tickets</b> para el gachapón.</p>
@@ -427,6 +431,19 @@ i.ticket{display:inline-block;width:27px;height:18px;background:var(--ticket-img
         <button class="btn" id="resumeBtn">Continuar</button>
         <button class="btn ghost" id="quitBtn">Salir al menú</button>
       </div>
+      <button class="btn ghost errbtn" id="errBtn" hidden>Informe de errores</button>
+    </div>
+  </div>
+  <div class="overlay" id="errScr" hidden>
+    <div class="panel center">
+      <h2>Informe de errores</h2>
+      <p class="lead">Si el juego ha fallado, copia este informe y envíaselo a quien lo programa para que pueda arreglarlo.</p>
+      <textarea id="errTxt" readonly rows="9" style="width:100%;font-size:12px;background:#0b0e1c;color:#c9cff0;border:3px solid var(--line);padding:8px"></textarea>
+      <div class="row">
+        <button class="btn" id="errCopy">Copiar</button>
+        <button class="btn ghost" id="errClear">Borrar</button>
+        <button class="btn ghost" id="errClose">Cerrar</button>
+      </div>
     </div>
   </div>
 
@@ -462,12 +479,12 @@ const P2 = v => Math.round(v / PX);
 const lv = (arr, L) => arr[Math.min(arr.length, L) - 1];
 const cv = $('#game'), ctx = cv.getContext('2d');
 const buf = document.createElement('canvas'), b = buf.getContext('2d');
-let DPR = 1, VW = 800, VH = 600, BW = 270, BH = 200, vignette = null, fogGrad = null;
+let QUAL = 2, DPR = 1, VW = 800, VH = 600, BW = 270, BH = 200, vignette = null, fogGrad = null;
 // cámara inclinada: las filas de arriba se ven más pequeñas (lejos) y las de abajo más grandes (cerca)
 const PK = 0.35, WIDEN = 1.38;
 const hU = u => (PK * u * u + u) / (1 + PK), sU = u => (2 * PK * u + 1) / (1 + PK);
 function resize() {
-  DPR = Math.min(2, window.devicePixelRatio || 1);
+  DPR = Math.min([1, 1.5, 2][QUAL], window.devicePixelRatio || 1);
   const r = cv.getBoundingClientRect();
   VW = Math.max(1, r.width); VH = Math.max(1, r.height);
   cv.width = Math.round(VW * DPR); cv.height = Math.round(VH * DPR);
@@ -1958,11 +1975,15 @@ function getLayout(cx, cy) {
   return L;
 }
 const chunkCache = new Map();
+function freeChunk(c) {
+  // Safari libera tarde la memoria de los lienzos: la soltamos a mano
+  try { if (c && c.objs) for (const o of c.objs) if (o.img && !o.img.shared) { o.img.width = 0; o.img.height = 0; } if (c) { c.width = 0; c.height = 0; } } catch (e) {}
+}
 function getChunk(cx, cy) {
   const k = cx + ',' + cy; let c = chunkCache.get(k);
   if (c) { chunkCache.delete(k); chunkCache.set(k, c); return c; }
   c = makeChunk(cx, cy); chunkCache.set(k, c);
-  if (chunkCache.size > 40) chunkCache.delete(chunkCache.keys().next().value);
+  if (chunkCache.size > 40) { const k0 = chunkCache.keys().next().value; freeChunk(chunkCache.get(k0)); chunkCache.delete(k0); }
   return c;
 }
 function crackP(g, x, y, R, col) {
@@ -2594,7 +2615,7 @@ const worldHp = () => Math.pow(world, 1.35), worldDmg = () => Math.pow(world, 0.
 const T2 = { dron:'espora', arana:'raptor', mutante:'sapo', murcielago:'avispa', bomba:'bombaflor', tirador:'escupidor', baba:'vaina', bruto:'gorila', guardia:'escarabajo', capitan:'chaman', alfa:'pantera', tanque:'tortuga', jefe:'coloso', sombra:'brote' };
 const T3 = { dron:'copo', arana:'lobo', mutante:'liebre', murcielago:'buho', bomba:'muneco', tirador:'arquero', baba:'bolanieve', bruto:'yeti', guardia:'morsa', capitan:'bruja', alfa:'huargo', tanque:'mamut', jefe:'glaciarey', sombra:'esquirla' };
 const themed = k => theme() === 2 && T2[k] ? T2[k] : theme() === 3 && T3[k] ? T3[k] : k;
-function worldCachesReset() { chunkCache.clear(); solidCache.clear(); fogGrad = null; vignette = null; }
+function worldCachesReset() { for (const c of chunkCache.values()) freeChunk(c); chunkCache.clear(); solidCache.clear(); fogGrad = null; vignette = null; }
 let bigChests = [], chestT = 0, bigChestT = 0, outposts = [], rift = null, exitPortal = null, saved = null, trans = null;
 let time = 0, kills = 0, bossKills = 0, spawnAcc, nextBoss, pendingLv = 0, shake = 0, banner = null, opts = [], decoBoom = 2;
 let outpostT = 0, riftT = 0, miniT = 0, miniN = 0, lastRift = null;
@@ -2730,6 +2751,13 @@ function hit(e, amt, kx = 0, ky = 0, quiet = false) {
   if (!quiet && texts.length < 80) texts.push({ x:e.x + rand(-6, 6), y:e.y - e.r - 10, t:0.6, v:Math.round(amt) });
   if (e.hp <= 0) kill(e);
 }
+function addXpGem(x, y, v) {
+  if (gems.length < 260) { gems.push({ x, y, v, kind:'xp' }); return; }
+  // demasiados orbes: se suma al orbe de energía más cercano para no perder experiencia
+  let best = null, bd = 1e12;
+  for (let i = gems.length - 1, n = 0; i >= 0 && n < 120; i--, n++) { const g = gems[i]; if (g.kind !== 'xp' || g.pull) continue; const d = (g.x - x) ** 2 + (g.y - y) ** 2; if (d < bd) { bd = d; best = g; } }
+  if (best) best.v += v; else gems.push({ x, y, v, kind:'xp' });
+}
 const drop = (x, y, kind, v) => gems.push({ x:x + rand(-14, 14), y:y + rand(-14, 14), kind, v });
 let corpses = [];
 function addCorpse(e) {
@@ -2783,7 +2811,7 @@ function kill(e) {
     sayAll('¡Victoria! Recoge el botín y cruza el portal', 3.5, '#c9a8ff'); bossKills++;
     boom(e.x, e.y, 110);
   } else {
-    if (gems.length < 450) gems.push({ x:e.x, y:e.y, v:e.xp, kind:'xp' });
+    addXpGem(e.x, e.y, e.xp);
     if (e.elite) { drop(e.x, e.y, 'coin', 2 + Math.floor(time / 120)); for (let i = 0; i < 10; i++) parts.push({ x:e.x, y:e.y - 10, vx:rand(-150, 150), vy:rand(-180, 30), t:0.6, c:'#ffd23f' }); }
     else gems[(Math.random() * gems.length) | 0].v += e.xp;
     const cr = e.type === 'bruto' ? 0.25 : 0.06;
@@ -3527,7 +3555,7 @@ function update(dt) {
     e.mx = dx / d; e.my = dy / d; e.spm = 1;
     if (e.frozen > 0) { e.frozen -= dt; e.spm = 0; }
     else if (e.root > 0) { e.root -= dt; e.spm = 0; }
-    else if (T.ai) { if (e.haste && e.atk > 0) e.atk -= dt * e.haste; if (TP !== P) { const realP = P; P = TP; try { AI[T.ai](e, dt, dx, dy, d); } finally { P = realP; } } else AI[T.ai](e, dt, dx, dy, d); }
+    else if (T.ai) { if (e.haste && e.atk > 0) e.atk -= dt * e.haste; const realP = P; try { P = TP; AI[T.ai](e, dt, dx, dy, d); } catch (err) { logErr(err, 'IA ' + e.type); e.aiErr = (e.aiErr || 0) + 1; if (e.aiErr > 3) { if (T.rift) { e.atk = 3; } else e.dead = true; } } finally { P = realP; } }
     const sp = e.speed * e.spm * (e.slow > 0 ? 0.45 : 1);
     e.x += e.mx * sp * dt + e.kx * dt; e.y += e.my * sp * dt + e.ky * dt;
     e.kx *= damp; e.ky *= damp;
@@ -3651,7 +3679,7 @@ function updWeapons(dt) {
   for (const k in P.weapons) {
     const S = WS[k](P.weapons[k], perOf(k));
     const s = wst[k] || (wst[k] = { t:0.4, a:0, tick:0, pos:[] });
-    W_UPD[k](s, S, dt, cdm);
+    try { W_UPD[k](s, S, dt, cdm); } catch (err) { logErr(err, 'poder ' + k); wst[k] = { t:1, a:0, tick:0, pos:[] }; }
   }
 }
 const aimAt = (r) => { const t = nearest(P.x, P.y, r); return t ? Math.atan2(t.y - P.y, t.x - P.x) : Math.atan2(P.fy, P.fx); };
@@ -4479,6 +4507,18 @@ function toMenu() {
 }
 
 $('#pauseBtn').addEventListener('click', pause);
+function errLogRead() { try { return JSON.parse(localStorage.getItem('shs-errlog') || '[]'); } catch (e) { return []; } }
+function updateErrBtn() { const none = !errLogRead().length; for (const id of ['errBtn', 'errBtnM']) { const b2 = document.getElementById(id); if (b2) b2.hidden = none; } }
+const openErrScr = () => {
+  const log = errLogRead();
+  $('#errTxt').value = log.length ? 'SuperHero Survivor · informe de errores\n' + log.map(x => `[${x.at}] ${x.where} (${x.n || 1}x) estado=${x.st}/${x.md} mundo=${x.w} t=${x.t}s héroe=${x.h} ${x.coop ? 'coop=' + x.coop : ''}\n  ${x.msg}\n  ${x.stack}\n  ${x.ua}`).join('\n') : 'No hay errores registrados.';
+  $('#errScr').hidden = false;
+};
+$('#errBtn').addEventListener('click', openErrScr); $('#errBtnM').addEventListener('click', openErrScr);
+$('#errCopy').addEventListener('click', async () => { const t = $('#errTxt'); try { await navigator.clipboard.writeText(t.value); $('#errCopy').textContent = '¡Copiado!'; } catch (e) { t.select(); try { document.execCommand('copy'); $('#errCopy').textContent = '¡Copiado!'; } catch (x) {} } setTimeout(() => $('#errCopy').textContent = 'Copiar', 1500); });
+$('#errClear').addEventListener('click', () => { try { localStorage.removeItem('shs-errlog'); } catch (e) {} $('#errTxt').value = 'No hay errores registrados.'; updateErrBtn(); });
+$('#errClose').addEventListener('click', () => { $('#errScr').hidden = true; });
+setTimeout(updateErrBtn, 0);
 $('#resumeBtn').addEventListener('click', resume);
 $('#quitBtn').addEventListener('click', toMenu);
 $('#againBtn').addEventListener('click', () => newGame(heroKey));
@@ -5675,28 +5715,100 @@ async function boot() {
 }
 
 let last = 0;
-function loop(ts) {
-  const dt = Math.min(0.05, (ts - last) / 1000 || 0); last = ts;
-  try { netTick(dt); } catch (e) { console.error(e); }
-  if (state === 'play') {
-    if (coopPaused()) coopPausedTick(dt);
-    else { if (NET && NET.wasPaused) { NET.wasPaused = false; P.inv = Math.max(P.inv, 1); } update(dt); }
-    if (state === 'play' && pendingLv > 0 && !P.choosing) openLevelUp();
-  } else if (state === 'trans') {
-    trans.t += dt;
-    if (!trans.done && trans.t >= trans.half) { trans.done = true; trans.cb(); }
-    if (trans.t >= trans.half * 2) { trans = null; state = 'play'; }
-  } else if (state === 'dying') {
-    deathTick(dt);
-  } else if (state === 'menu') {
-    camX += 26 * dt; camY += 10 * dt;
-    updateAmbient(dt, true);
+// registro de errores (se guarda en el dispositivo para poder enviarlo) y recuperación automática
+const ERRLOG_KEY = 'shs-errlog';
+let errRecent = [], errShown = 0;
+function logErr(e, where) {
+  try {
+    const msg = String(e && e.message || e).slice(0, 200), stack = String(e && e.stack || '').split('\n').slice(0, 4).join(' | ').slice(0, 400);
+    console.error('[SHS]', where, e);
+    const now = performance.now(); errRecent.push(now); errRecent = errRecent.filter(t => now - t < 4000);
+    let log = []; try { log = JSON.parse(localStorage.getItem(ERRLOG_KEY) || '[]'); } catch (x) {}
+    const last = log[log.length - 1];
+    if (last && last.msg === msg && last.where === where) { last.n = (last.n || 1) + 1; last.at = new Date().toISOString(); }
+    else log.push({ at:new Date().toISOString(), where, msg, stack, st:state, md:mode, w:world, t:Math.round(time || 0), h:heroKey, coop:NET ? NET.role : '', ua:navigator.userAgent.slice(0, 120), n:1 });
+    while (log.length > 25) log.shift();
+    try { localStorage.setItem(ERRLOG_KEY, JSON.stringify(log)); } catch (x) {}
+    updateErrBtn();
+  } catch (x) {}
+}
+window.addEventListener('error', ev => logErr(ev.error || ev.message, 'global'));
+window.addEventListener('unhandledrejection', ev => logErr(ev.reason, 'promesa'));
+const isNum = v => typeof v === 'number' && isFinite(v);
+// repara datos rotos (posiciones o vidas no numéricas) que dejarían la pantalla congelada
+function sanitize() {
+  if (P) {
+    if (!isNum(P.x) || !isNum(P.y)) { P.x = isNum(P.lx) ? P.lx : (mode === 'rift' ? 0 : RW_W / 2); P.y = isNum(P.ly) ? P.ly : (mode === 'rift' ? 150 : RW_W / 2); } else { P.lx = P.x; P.ly = P.y; }
+    if (!isNum(P.maxHp) || P.maxHp <= 0) P.maxHp = 100;
+    if (!isNum(P.hp)) P.hp = P.maxHp;
+    if (!isNum(P.xp)) P.xp = 0;
+    if (!isNum(P.next) || P.next < 1) P.next = 6;
   }
-  render(ts);
-  if (gachaAnim > 0) gachaAnim -= dt;
-  if (!$('#gachaScr').hidden) { drawMachine(ts / 1000); $$('#featured canvas').forEach((c, i) => portrait(c, c.dataset.k, false, (Math.floor(ts / 350) + i * 3) % 8, Math.floor(ts / 600) % 2)); }
-  if (state === 'menu' && !$('#menu').hidden && $('#showCv')) portrait($('#showCv'), save.sel, false, Math.floor(ts / 450) % 8, Math.floor(ts / 600) % 2);
+  if (!isNum(camX) || !isNum(camY)) { camX = P ? P.x : 0; camY = P ? P.y : 0; }
+  let bad = false;
+  for (const e of enemies) if (!isNum(e.x) || !isNum(e.y) || !isNum(e.hp)) { bad = true; break; }
+  if (bad) enemies = enemies.filter(e => isNum(e.x) && isNum(e.y) && isNum(e.hp));
+  for (const e of enemies) { if (!isNum(e.kx)) e.kx = 0; if (!isNum(e.ky)) e.ky = 0; }
+  if (ebullets.some(o => !isNum(o.x) || !isNum(o.y))) ebullets = ebullets.filter(o => isNum(o.x) && isNum(o.y));
+  if (gems.some(o => !isNum(o.x) || !isNum(o.y) || !isNum(o.v))) gems = gems.filter(o => isNum(o.x) && isNum(o.y) && isNum(o.v));
+  // límites para que los efectos nunca se acumulen sin control
+  if (parts.length > 600) parts.splice(0, parts.length - 600);
+  if (booms.length > 60) booms.splice(0, booms.length - 60);
+  if (texts.length > 90) texts.splice(0, texts.length - 90);
+  if (ebullets.length > 500) ebullets.splice(0, ebullets.length - 500);
+  if (hz.length > 80) hz.splice(0, hz.length - 80);
+  if (warnings.length > 80) warnings.splice(0, warnings.length - 80);
+}
+function recoverFromErrors() {
+  // muchos errores seguidos: limpiamos efectos y, si sigue fallando, se guarda y se vuelve al menú
+  try { clearFx(); sanitize(); } catch (x) {}
+  if (errRecent.length > 40 && (state === 'play' || state === 'dying' || state === 'trans')) {
+    errRecent = [];
+    try { trans = null; toMenu(); } catch (x) { state = 'menu'; try { showHome(); } catch (y) {} }
+    try { setTimeout(() => alert('El juego ha tenido un problema y ha vuelto al menú. Tus monedas y tickets están guardados.'), 50); } catch (x) {}
+  }
+}
+// calidad automática: si el dispositivo va justo, se baja la resolución y algunos efectos
+let frameEMA = 1 / 60, qualT = 0, qualUpT = 0;
+function adaptQuality(dt) {
+  if (state !== 'play') return;
+  frameEMA = frameEMA * 0.95 + dt * 0.05; qualT += dt; qualUpT += dt;
+  if (qualT > 3 && frameEMA > 1 / 38 && QUAL > 0) { QUAL--; qualT = 0; qualUpT = 0; frameEMA = 1 / 50; resize(); }
+  else if (qualUpT > 25 && frameEMA < 1 / 57 && QUAL < 2) { QUAL++; qualT = 0; qualUpT = 0; resize(); }
+}
+function loop(ts) {
   requestAnimationFrame(loop);
+  const dt = Math.min(0.05, (ts - last) / 1000 || 0); last = ts;
+  let ok = true;
+  try { netTick(dt); } catch (e) { logErr(e, 'red'); }
+  try {
+    if (state === 'play') {
+      if (coopPaused()) coopPausedTick(dt);
+      else { if (NET && NET.wasPaused) { NET.wasPaused = false; P.inv = Math.max(P.inv, 1); } update(dt); }
+      if (state === 'play' && pendingLv > 0 && !P.choosing) openLevelUp();
+    } else if (state === 'trans') {
+      if (!trans) state = 'play';
+      else {
+        trans.t += dt;
+        if (!trans.done && trans.t >= trans.half) { trans.done = true; try { trans.cb(); } catch (e) { logErr(e, 'transición'); } }
+        if (trans && trans.t >= trans.half * 2) { trans = null; state = 'play'; }
+      }
+    } else if (state === 'dying') {
+      deathTick(dt);
+    } else if (state === 'menu') {
+      camX += 26 * dt; camY += 10 * dt;
+      updateAmbient(dt, true);
+    }
+  } catch (e) { ok = false; logErr(e, 'juego:' + state); }
+  try { if (P && (state === 'play' || state === 'dying')) sanitize(); } catch (e) { logErr(e, 'reparar'); }
+  try { render(ts); } catch (e) { ok = false; logErr(e, 'dibujo'); try { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; b.setTransform(1, 0, 0, 1, 0, 0); b.globalAlpha = 1; } catch (x) {} }
+  try {
+    if (gachaAnim > 0) gachaAnim -= dt;
+    if (!$('#gachaScr').hidden) { drawMachine(ts / 1000); $$('#featured canvas').forEach((c, i) => portrait(c, c.dataset.k, false, (Math.floor(ts / 350) + i * 3) % 8, Math.floor(ts / 600) % 2)); }
+    if (state === 'menu' && !$('#menu').hidden && $('#showCv')) portrait($('#showCv'), save.sel, false, Math.floor(ts / 450) % 8, Math.floor(ts / 600) % 2);
+  } catch (e) { logErr(e, 'menú'); }
+  if (!ok && errRecent.length > 15) recoverFromErrors();
+  try { adaptQuality(dt); } catch (e) {}
 }
 /* ================= MULTIJUGADOR COOPERATIVO ================= */
 // Conexión: los jugadores se encuentran por un servidor público de mensajes (MQTT sobre WebSocket, sin cuentas).
